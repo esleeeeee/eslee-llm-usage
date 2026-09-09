@@ -1,6 +1,7 @@
 package com.eslee.llmusage.provider
 
 import com.eslee.llmusage.core.model.*
+import com.eslee.llmusage.core.web.WebNavigationPolicy
 
 enum class ConnectorStatus { STABLE_OFFICIAL, OFFICIAL_UNVERIFIED, EXPERIMENTAL_WEB, PLACEHOLDER_UNSUPPORTED, DISABLED_POLICY }
 data class ProviderCapabilities(
@@ -77,7 +78,8 @@ class ProviderRegistry(debug: Boolean) {
         id, title, AuthMode.WEB_PROFILE, true,
         "격리된 로그인 화면에서 사용자가 표시한 Usage 텍스트만 읽습니다. 실험적 기능이며 UI 변경 시 실패할 수 있습니다.",
         "최소 fixture 검증 · 실제 로그인/UI 미검증", ConnectorStatus.EXPERIMENTAL_WEB,
-        web.copy(supportsExtraCredits = id == "grok"), login, usage, setOf(host) + loginHosts,
+        web.copy(supportsExtraCredits = id == "grok"), login, usage,
+        WebNavigationPolicy.withOAuth(setOf(host) + loginHosts),
     )
 
     fun definition(id: String): ProviderDefinition? = definitions.find { it.id == id }

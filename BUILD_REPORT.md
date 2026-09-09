@@ -1,6 +1,29 @@
 # Build report
 
-Status: v0.1.1 local debug APK, unsigned release APK, unit tests, and lint completed. Device re-verification after the inset/touch/login patch has not been run.
+Status: v0.1.2 local unit tests, lint, signed debug APK, and signed release APK completed. Device retest of update/login/delete has not been run.
+
+## v0.1.2 (2026-09-09)
+
+Device testing of v0.1.1 found update install failure, social-login "not allowed" toasts, and account delete no-ops.
+
+- GitHub Actions now signs debug and release with a fixed upload keystore stored only as Actions secrets. v0.1.0/v0.1.1 used ephemeral debug keys, so they cannot be recovered; install v0.1.2 after uninstalling those builds. Later versions share this key.
+- `versionCode` is 3.
+- Consumer WebView allowlists include Google/Apple/Microsoft/X OAuth hosts. `intent:`/`market:` still cannot enter the isolated profile; the UI tells the user to use email sign-in. Host+path are logged without query strings.
+- Account delete always removes the Room row, snapshots, credentials, and widget links even if WebView profile cleanup fails.
+
+| Command | Result |
+| --- | --- |
+| `testDebugUnitTest` | PASS — 23 tests, 0 failures |
+| `lintDebug` | PASS |
+| `assembleDebug` | PASS — signed with upload key |
+| `assembleRelease` | PASS — signed with upload key |
+| `assembleDebugAndroidTest` | PASS — compile only |
+| Device retest | NOT RUN |
+
+| File | SHA-256 |
+| --- | --- |
+| `eslee-llm-usage-v0.1.2-debug.apk` | `cc96e71224d39e1789823260a3dcc539da7726a451baafa5a3ea3829bdbc02c6` |
+| `eslee-llm-usage-v0.1.2-release.apk` | `faca23439a6bc84b72c363bbee8e646476b0d0b6ce0af62cf41b3fc648563863` |
 
 ## v0.1.1 (2026-09-09)
 

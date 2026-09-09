@@ -41,6 +41,8 @@
     <string name="web_usage_page">Usage page</string>
     <string name="web_unsupported">Update Android System WebView to use isolated account sessions.</string>
     <string name="web_blocked">This navigation is not allowed. Some social sign-in providers do not support embedded browsers.</string>
+    <string name="web_email_login_hint">Use email sign-in here. Google or Apple sign-in may leave this isolated browser.</string>
+    <string name="web_use_email_login">That sign-in opens another app. Use email on this page instead.</string>
     <string name="web_login_hint">Complete sign-in on the provider page, then open the usage page and read usage.</string>
     <string name="web_login_unknown">Could not confirm sign-in. Stay on the signed-in page, then try again.</string>
     <string name="web_session_title">%1$s · %2$s</string>

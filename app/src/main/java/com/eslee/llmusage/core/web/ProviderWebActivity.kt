@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -86,6 +87,7 @@ class ProviderWebActivity : ComponentActivity() {
             }
             toolbar.addView(heading)
             toolbar.addView(host)
+            toolbar.addView(TextView(this@ProviderWebActivity).apply { setText(R.string.web_email_login_hint) })
             toolbar.addView(actions)
 
             val webHost = FrameLayout(this@ProviderWebActivity).apply {
@@ -99,14 +101,10 @@ class ProviderWebActivity : ComponentActivity() {
             web.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     host.text = Uri.parse(url).host.orEmpty()
-                    if (!WebNavigationPolicy.allows(url, provider.allowedHosts)) view.stopLoading()
+                    if (WebNavigationPolicy.inspect(url, provider.allowedHosts) != NavigationDecision.ALLOW) view.stopLoading()
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val allowed = WebNavigationPolicy.allows(request.url.toString(), provider.allowedHosts)
-                    if (!allowed && request.isForMainFrame) {
-                        Toast.makeText(this@ProviderWebActivity, R.string.web_blocked, Toast.LENGTH_LONG).show()
-                    }
-                    return !allowed
+                    return blockIfDisallowed(request.url.toString(), provider.allowedHosts, request.isForMainFrame)
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     host.text = Uri.parse(url).host.orEmpty()
@@ -126,8 +124,7 @@ class ProviderWebActivity : ComponentActivity() {
                     popup.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
                             val url = request.url.toString()
-                            if (WebNavigationPolicy.allows(url, provider.allowedHosts)) view.loadUrl(url)
-                            else Toast.makeText(this@ProviderWebActivity, R.string.web_blocked, Toast.LENGTH_LONG).show()
+                            if (!blockIfDisallowed(url, provider.allowedHosts, true)) view.loadUrl(url)
                             popup.destroy()
                             return true
                         }
@@ -184,6 +181,20 @@ class ProviderWebActivity : ComponentActivity() {
             toolbar.bringToFront()
             web.loadUrl(start)
         }
+    }
+
+    private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {
+        val decision = WebNavigationPolicy.inspect(url, hosts)
+        Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision")
+        if (decision == NavigationDecision.ALLOW) return false
+        if (mainFrame) {
+            Toast.makeText(
+                this,
+                if (decision == NavigationDecision.BLOCK_SCHEME) R.string.web_use_email_login else R.string.web_blocked,
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        return true
     }
 
     private fun confirmLogin(web: WebView, provider: ProviderDefinition) {
@@ -267,6 +278,7 @@ class ProviderWebActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val NAV_LOG = "LlmUsageWeb"
         const val AUTH_STATE_JS =
             "(function(){var t=document.body?document.body.innerText.slice(0,8000):'';return JSON.stringify({url:location.href,text:t,hasPassword:!!document.querySelector('input[type=password]'),hasComposer:!!document.querySelector('textarea,[contenteditable=\"true\"]')});})()"
         const val PAGE_TEXT_JS =

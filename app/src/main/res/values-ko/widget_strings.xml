@@ -41,6 +41,8 @@
     <string name="web_usage_page">사용량 페이지</string>
     <string name="web_unsupported">계정별 격리 세션을 사용하려면 Android System WebView를 업데이트하세요.</string>
     <string name="web_blocked">허용되지 않은 이동입니다. 일부 소셜 로그인은 앱 내부 브라우저를 지원하지 않습니다.</string>
+    <string name="web_email_login_hint">이 화면에서는 이메일 로그인을 사용하세요. Google/Apple 로그인은 격리된 브라우저 밖으로 나갈 수 있습니다.</string>
+    <string name="web_use_email_login">해당 로그인은 다른 앱을 엽니다. 이 페이지의 이메일 로그인을 사용하세요.</string>
     <string name="web_login_hint">제공자 페이지에서 직접 로그인한 뒤 사용량 페이지를 열고 사용량을 읽으세요.</string>
     <string name="web_login_unknown">로그인 상태를 확인하지 못했습니다. 로그인된 페이지에서 다시 시도하세요.</string>
     <string name="web_session_title">%1$s · %2$s</string>

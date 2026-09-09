@@ -9,7 +9,8 @@
 - Consumer 연결은 foreground 전용입니다. WorkManager 예약 갱신은 Android 전원 정책에 따라 지연될 수 있습니다.
 - 위젯의 1x1~5x5는 launcher 셀 수 보장이 아니라 실제 dp 크기를 기준으로 대응합니다. RING_OPTIONAL은 bitmap 없이 bar로 대체합니다.
 - 스냅샷 원본 신뢰도와 오래된 데이터 상태를 분리합니다. 최신 조회 실패 시 마지막 성공 데이터가 남습니다.
-- 배포 서명 키는 저장소에 포함하지 않습니다. unsigned release APK는 직접 설치할 수 없으며 본인의 서명 절차가 필요합니다.
+- 배포 서명 키는 저장소에 포함하지 않습니다. GitHub Release의 v0.1.2부터는 Actions Secret의 고정 upload key로 서명합니다.
+- v0.1.0과 v0.1.1은 runner마다 다른 debug 키로 서명되어 서로, 그리고 v0.1.2와 덮어쓰기 설치가 되지 않습니다. v0.1.2를 쓰려면 기존 앱을 한 번 삭제한 뒤 새로 설치해야 합니다. v0.1.2 이후 버전은 같은 키로 업데이트할 수 있습니다.
 
 - 이 환경에서는 에뮬레이터/실기기가 없어 instrumentation과 위젯 런처 검증을 실행하지 못했습니다.
 - Provider 설명·bucket label 일부와 parser 메시지는 아직 코드 문자열입니다. UI 리소스 EN/KO와 완전히 분리되지 않았습니다.

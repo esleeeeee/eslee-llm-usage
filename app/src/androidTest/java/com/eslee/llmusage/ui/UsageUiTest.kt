@@ -38,6 +38,13 @@ class UsageUiTest {
         compose.runOnIdle { assertTrue(dismissed); assertFalse(deleted) }
     }
 
+    @Test fun accountDeleteConfirmationInvokesDelete() {
+        var deleted = false
+        compose.setContent { UsageTheme { ConfirmDelete(R.string.delete_account, R.string.delete_account_body, {}, { deleted = true }) } }
+        compose.onNodeWithText(context.getString(R.string.delete)).performClick()
+        compose.runOnIdle { assertTrue(deleted) }
+    }
+
     @Test fun realZeroUsageIsShownAsZero() {
         compose.setContent { UsageTheme { BucketContent(UsageBucket("known", "Quota", usedPercent = 0.0), remaining = false) } }
         compose.onNodeWithText("0%").assertIsDisplayed()

@@ -16,7 +16,11 @@ API 요청은 HTTPS를 사용하며 인증 헤더를 로그에 기록하지 않�
 
 ## 삭제
 
-로그아웃은 credential과 managed web profile을 정리합니다. 계정 삭제는 관련 snapshot, bucket, widget relation, sync log를 cascade 정리합니다. 플랫폼 정리가 실패하면 재시도할 수 있도록 계정을 비활성 상태로 보존합니다.
+로그아웃은 credential과 managed web profile을 정리합니다. 계정 삭제는 snapshot, bucket, widget relation, sync log, credential을 제거하고 계정 row를 삭제합니다. WebView profile 정리가 실패해도 계정 데이터는 남기지 않습니다.
+
+## 배포 서명
+
+GitHub Release APK는 저장소 밖 고정 upload keystore로 서명합니다. keystore와 비밀번호는 public git에 넣지 않고 GitHub Actions Secret으로만 주입합니다. v0.1.0과 v0.1.1은 runner마다 다른 debug 키로 서명되어 서로 덮어쓸 수 없습니다. v0.1.2부터는 같은 키를 사용합니다.
 
 ## 제보
 

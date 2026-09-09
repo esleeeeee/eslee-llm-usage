@@ -2,7 +2,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.1.1.** 로컬에서 unit test, lint, debug APK, unsigned release APK까지 확인했습니다. 기기 설치·실계정 검증은 [BUILD_REPORT.md](BUILD_REPORT.md)를 확인하세요. 공개 저장소: https://github.com/esleeeeee/eslee-LLM-Usage
+**v0.1.2.** 로컬에서 unit test, lint, debug APK, signed release APK까지 확인했습니다. v0.1.0/v0.1.1에서 덮어쓰기 설치는 서명 키가 달라 한 번 삭제가 필요합니다. 이후 버전은 같은 키로 서명합니다. 기기 재검증은 [BUILD_REPORT.md](BUILD_REPORT.md)를 확인하세요. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 

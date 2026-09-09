@@ -36,6 +36,25 @@ class UsageDatabaseTest {
         assertTrue(dao.logs("a").isEmpty())
         assertEquals(1, dao.accounts().size)
     }
+    @Test fun chatgptAndGrokDeletesRemoveSnapshotsWidgetsAndKeepOtherAccount() = runBlocking {
+        val dao = db.dao()
+        dao.putAccount(AccountEntity("chatgpt-1", "chatgpt", """{"id":"chatgpt-1"}"""))
+        dao.putAccount(AccountEntity("grok-1", "grok", """{"id":"grok-1"}"""))
+        dao.putSnapshot(SnapshotEntity("s1", "chatgpt-1", 10, "{}"))
+        dao.putSnapshot(SnapshotEntity("s2", "grok-1", 11, "{}"))
+        dao.putWidget(WidgetEntity(7, """{"appWidgetId":7,"selections":[{"accountId":"chatgpt-1"},{"accountId":"grok-1"}]}"""))
+        dao.putWidgetAccounts(listOf(WidgetAccountEntity(7, "chatgpt-1", 0), WidgetAccountEntity(7, "grok-1", 1)))
+        dao.deleteAccount("chatgpt-1")
+        assertNull(dao.account("chatgpt-1"))
+        assertTrue(dao.history("chatgpt-1").isEmpty())
+        assertEquals(listOf("grok-1"), dao.widgetAccounts(7))
+        dao.deleteAccount("grok-1")
+        assertNull(dao.account("grok-1"))
+        assertTrue(dao.history("grok-1").isEmpty())
+        assertTrue(dao.widgetAccounts(7).isEmpty())
+        assertTrue(dao.accounts().isEmpty())
+    }
+
     @Test fun failedTransactionDoesNotLeaveHalfSnapshot() = runBlocking {
         val dao = db.dao()
         dao.putAccount(AccountEntity("a", "grok", "{}"))

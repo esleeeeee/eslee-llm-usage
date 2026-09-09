@@ -9,6 +9,8 @@ import com.eslee.llmusage.core.security.CredentialStore
 import com.eslee.llmusage.core.web.ProfileSessions
 import com.eslee.llmusage.provider.*
 import com.eslee.llmusage.settings.SettingsStore
+import com.eslee.llmusage.widget.WidgetConfig
+import com.eslee.llmusage.widget.WidgetSelection
 import com.eslee.llmusage.widget.updateWidgets
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.map
@@ -171,15 +173,33 @@ class UsageRepository(
     private suspend fun deleteAccountUnlocked(id: String) {
         locks.getOrPut(id) { Mutex() }.withLock {
             val account = account(id) ?: return@withLock
-            persist(account.copy(enabled = false, lastErrorCode = "CLEANUP_PENDING"))
             WorkManager.getInstance(context).cancelUniqueWork("sync_$id")
             credentials.deleteSecret(id)
-            val profileRemoved = account.profileName == null || runCatching {
-                withContext(Dispatchers.Main) { ProfileSessions.delete(account.profileName) }
-            }.getOrDefault(false)
-            if (!profileRemoved) return@withLock
+            account.profileName?.let { name ->
+                runCatching { withContext(Dispatchers.Main) { ProfileSessions.delete(name) } }
+            }
+            pruneWidgetsForAccount(id)
             database.withTransaction { dao.deleteAccount(id) }
             retryAt.remove(id)
+        }
+    }
+
+    private suspend fun pruneWidgetsForAccount(accountId: String) {
+        dao.widgets().forEach { widget ->
+            val remainingIds = dao.widgetAccounts(widget.appWidgetId).filter { it != accountId }
+            val parsed = runCatching { json.decodeFromString<WidgetConfig>(widget.payload) }.getOrNull()
+            val selections = (parsed?.selections?.filter { it.accountId != accountId }
+                ?: remainingIds.map { WidgetSelection(it) }).ifEmpty { remainingIds.map { WidgetSelection(it) } }
+            if (selections.isEmpty()) {
+                dao.deleteWidget(widget.appWidgetId)
+            } else {
+                val pruned = (parsed ?: WidgetConfig(widget.appWidgetId)).copy(selections = selections)
+                dao.putWidget(widget.copy(payload = json.encodeToString(pruned)))
+                dao.clearWidgetAccounts(widget.appWidgetId)
+                dao.putWidgetAccounts(pruned.selections.mapIndexed { position, selection ->
+                    WidgetAccountEntity(widget.appWidgetId, selection.accountId, position)
+                })
+            }
         }
     }
     suspend fun cleanup() {

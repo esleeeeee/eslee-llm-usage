@@ -13,27 +13,31 @@ android {
         applicationId = "com.eslee.llmusage"
         minSdk = 28
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     signingConfigs {
-        if (System.getenv("RELEASE_STORE_FILE") != null) {
-            create("production") {
-                storeFile = file(System.getenv("RELEASE_STORE_FILE"))
-                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+        val storePath = System.getenv("SIGNING_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
+        if (storePath != null) {
+            create("distribution") {
+                storeFile = file(storePath)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
             }
         }
     }
     buildTypes {
+        debug {
+            signingConfigs.findByName("distribution")?.let { signingConfig = it }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.findByName("production")
+            signingConfig = signingConfigs.findByName("distribution")
         }
     }
     sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")

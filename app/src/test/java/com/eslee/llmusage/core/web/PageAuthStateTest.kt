@@ -31,5 +31,7 @@ class PageAuthStateTest {
         assertTrue(WebNavigationPolicy.allows(grok.loginUrl!!, grok.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://auth.openai.com/authorize", chatgpt.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://accounts.x.ai/sign-in", grok.allowedHosts))
+        assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", chatgpt.allowedHosts))
+        assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", grok.allowedHosts))
     }
 }
