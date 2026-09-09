@@ -6,11 +6,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.eslee.llmusage.core.web.enableEdgeToEdgeContent
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -23,6 +27,7 @@ import kotlinx.coroutines.launch
 
 class WidgetConfigurationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdgeContent()
         super.onCreate(savedInstanceState)
         setResult(RESULT_CANCELED)
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,AppWidgetManager.INVALID_APPWIDGET_ID)
@@ -42,7 +47,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                     var config by remember { mutableStateOf(original) }
                     var saving by remember { mutableStateOf(false) }
                     val preview by produceState<List<WidgetAccountRow>>(emptyList(),config) { value = WidgetStateMapper.rows(this@WidgetConfigurationActivity,config) }
-                    Surface {
+                    Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                             Text(stringResource(R.string.widget_configure),style=MaterialTheme.typography.headlineSmall)
                             Text(stringResource(R.string.widget_accounts))

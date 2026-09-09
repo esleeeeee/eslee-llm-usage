@@ -10,6 +10,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,6 +31,7 @@ import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.core.model.*
 import com.eslee.llmusage.core.web.ProfileSessions
 import com.eslee.llmusage.core.web.ProviderWebActivity
+import com.eslee.llmusage.core.web.enableEdgeToEdgeContent
 import com.eslee.llmusage.provider.*
 import com.eslee.llmusage.settings.AppSettings
 import com.eslee.llmusage.usage.AccountOverview
@@ -40,6 +43,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdgeContent()
         super.onCreate(savedInstanceState)
         setContent { UsageApp((application as UsageApplication).graph, intent.getStringExtra("accountId")) }
     }
@@ -75,6 +79,8 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
         val tabs = listOf(R.string.dashboard, R.string.accounts, R.string.widgets, R.string.settings)
         Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets.safeDrawing,
             topBar = { TopAppBar(title = { Text(stringResource(when (route) {
                 "add" -> R.string.add_account; "providers" -> R.string.provider_status; "diagnostics" -> R.string.diagnostics
                 "detail" -> R.string.usage; else -> tabs[tab]

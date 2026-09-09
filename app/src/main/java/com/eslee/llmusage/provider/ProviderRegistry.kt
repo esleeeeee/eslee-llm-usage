@@ -45,11 +45,12 @@ class ProviderRegistry(debug: Boolean) {
     private val web = ProviderCapabilities(supportsForegroundSync = true, supportsConsumerWeb = true,
         supportsPlanInfo = true, supportsResetTime = true, supportsPercentUsage = true)
     val definitions: List<ProviderDefinition> = buildList {
-        add(consumer("chatgpt", "ChatGPT", "chatgpt.com", "https://chatgpt.com/", setOf("auth.openai.com", "auth0.openai.com")))
+        add(consumer("chatgpt", "ChatGPT", "chatgpt.com", "https://chatgpt.com/auth/login", "https://chatgpt.com/",
+            setOf("auth.openai.com", "auth0.openai.com", "chat.openai.com")))
         add(api("openai-api", "OpenAI API", "조직 Admin key로 오늘(UTC)의 토큰·요청 사용량 조회. ChatGPT 구독과 별도."))
-        add(consumer("claude", "Claude", "claude.ai", "https://claude.ai/settings/usage"))
+        add(consumer("claude", "Claude", "claude.ai", "https://claude.ai/login", "https://claude.ai/settings/usage"))
         add(api("anthropic-api", "Anthropic API", "조직 Admin key로 오늘(UTC)의 토큰 사용량 조회. Claude 구독과 별도."))
-        add(consumer("grok", "Grok", "grok.com", "https://grok.com/", setOf("accounts.x.ai")))
+        add(consumer("grok", "Grok", "grok.com", "https://grok.com/sign-in", "https://grok.com/", setOf("accounts.x.ai")))
         add(api("xai-api", "xAI API", "Management key와 Team ID로 오늘(UTC)의 API 비용 조회. SuperGrok 구독과 별도."))
         for ((id, title) in listOf("gemini" to "Gemini", "perplexity" to "Perplexity")) add(
             ProviderDefinition(id, title, AuthMode.NONE, false, "공개 consumer Usage API 및 검증된 화면 파서가 없어 현재 지원하지 않습니다.",
@@ -65,11 +66,19 @@ class ProviderRegistry(debug: Boolean) {
             "anthropic-api" -> "https://platform.claude.com/usage"
             else -> "https://console.x.ai/"
         })
-    private fun consumer(id: String, title: String, host: String, usage: String, loginHosts: Set<String> = emptySet()) =
-        ProviderDefinition(id, title, AuthMode.WEB_PROFILE, true,
-            "격리된 로그인 화면에서 사용자가 표시한 Usage 텍스트만 읽습니다. 실험적 기능이며 UI 변경 시 실패할 수 있습니다.",
-            "최소 fixture 검증 · 실제 로그인/UI 미검증", ConnectorStatus.EXPERIMENTAL_WEB,
-            web.copy(supportsExtraCredits = id == "grok"), "https://$host/", usage, setOf(host) + loginHosts)
+    private fun consumer(
+        id: String,
+        title: String,
+        host: String,
+        login: String,
+        usage: String,
+        loginHosts: Set<String> = emptySet(),
+    ) = ProviderDefinition(
+        id, title, AuthMode.WEB_PROFILE, true,
+        "격리된 로그인 화면에서 사용자가 표시한 Usage 텍스트만 읽습니다. 실험적 기능이며 UI 변경 시 실패할 수 있습니다.",
+        "최소 fixture 검증 · 실제 로그인/UI 미검증", ConnectorStatus.EXPERIMENTAL_WEB,
+        web.copy(supportsExtraCredits = id == "grok"), login, usage, setOf(host) + loginHosts,
+    )
 
     fun definition(id: String): ProviderDefinition? = definitions.find { it.id == id }
     fun adapter(id: String): UsageProvider? = when {
