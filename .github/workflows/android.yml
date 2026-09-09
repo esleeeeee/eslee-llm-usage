@@ -29,17 +29,27 @@ jobs:
             app/build/outputs/apk/
             app/build/reports/
             app/build/test-results/
-      - name: Publish v0.1.0 debug APK
+      - name: Publish versioned debug APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk eslee-llm-usage-v0.1.0-debug.apk
-          if gh release view v0.1.0 >/dev/null 2>&1; then
-            gh release upload v0.1.0 eslee-llm-usage-v0.1.0-debug.apk --clobber
+          VERSION=$(python3 - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("app/build.gradle.kts").read_text()
+          match = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+          if not match:
+              raise SystemExit("versionName not found")
+          print(match.group(1))
+          PY
+          )
+          TAG="v$VERSION"
+          cp app/build/outputs/apk/debug/app-debug.apk "eslee-llm-usage-${TAG}-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "eslee-llm-usage-${TAG}-debug.apk" --clobber
           else
-            gh release create v0.1.0 eslee-llm-usage-v0.1.0-debug.apk \
+            gh release create "$TAG" "eslee-llm-usage-${TAG}-debug.apk" \
               --target "$GITHUB_SHA" \
-              --title "eslee LLM Usage v0.1.0" \
-              --notes "First device-test build. Debug APK for Android 9 (API 28) and later. Consumer-provider live login and real-device widget behavior are still under verification."
+              --title "eslee LLM Usage $TAG" \
+              --notes "Build $TAG. Debug APK for Android 9 (API 28) and later. Device and live-provider verification are recorded in BUILD_REPORT.md."
           fi
