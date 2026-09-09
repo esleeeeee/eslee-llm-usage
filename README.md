@@ -2,7 +2,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.1.2.** 로컬에서 unit test, lint, debug APK, signed release APK까지 확인했습니다. v0.1.0/v0.1.1에서 덮어쓰기 설치는 서명 키가 달라 한 번 삭제가 필요합니다. 이후 버전은 같은 키로 서명합니다. 기기 재검증은 [BUILD_REPORT.md](BUILD_REPORT.md)를 확인하세요. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.1.3.** Android-only. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 
@@ -18,9 +18,9 @@
 
 | 서비스 | 수집 범위 | 갱신 | 검증 상태 |
 | --- | --- | --- | --- |
-| ChatGPT | 표시된 모델·기능별 사용량/초기화 정보 | 앱 내 웹 화면 | 실험적 parser, 실로그인 미검증 |
+| Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 앱 내 WebView, 공식 Usage 화면 | 실험적 parser, 실기기 숫자 미확인 |
 | Claude | 표시된 세션·주간 한도 | 앱 내 웹 화면 | 실험적 parser, 실로그인 미검증 |
-| Grok | 표시된 주간·기능별 한도, 크레딧 | 앱 내 웹 화면 | 실험적 parser, 실로그인 미검증 |
+| Grok | Settings Usage 주간 %, 제품별 비율, reset, Extra Usage Credits | 앱 내 WebView, `?_s=usage` | 실험적 parser, 실기기 숫자 미확인 |
 | OpenAI API | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
 | Anthropic API | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
 | xAI API | UTC 오늘 팀 API 비용 | Management key와 Team ID, 백그라운드 | 공식 API 구현, 실계정 미검증 |

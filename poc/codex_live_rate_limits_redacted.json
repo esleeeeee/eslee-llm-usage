@@ -1,0 +1,37 @@
+{
+  "capturedAt": "2026-09-09T08:18:00Z",
+  "cli": "codex-cli 0.153.4",
+  "authMode": "chatgpt",
+  "planType": "plus",
+  "method": "codex app-server account/rateLimits/read",
+  "credentials": "not read; Codex process used its own login",
+  "buckets": [
+    {
+      "limitId": "codex",
+      "window": "primary",
+      "label": "5h",
+      "usedPercent": 20,
+      "windowDurationMins": 300,
+      "resetsAtUtc": "2026-09-09T09:40:46Z"
+    },
+    {
+      "limitId": "codex",
+      "window": "secondary",
+      "label": "weekly",
+      "usedPercent": 25,
+      "windowDurationMins": 10080,
+      "resetsAtUtc": "2026-09-15T05:18:29Z"
+    },
+    {
+      "limitId": "base_model_inference",
+      "limitName": "gpt-reserve",
+      "window": "primary",
+      "label": "weekly",
+      "usedPercent": 0,
+      "windowDurationMins": 10080,
+      "resetsAtUtc": "2026-09-16T08:17:39Z"
+    }
+  ],
+  "credits": null,
+  "resetCreditsAvailable": 3
+}

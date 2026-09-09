@@ -1,6 +1,35 @@
 # Build report
 
-Status: v0.1.2 local unit tests, lint, signed debug APK, and signed release APK completed. Device retest of update/login/delete has not been run.
+Status: v0.1.3 local unit tests, lint, signed debug APK, and signed release APK completed. Device read of Codex/Grok usage numbers has not been run.
+
+## v0.1.3 (2026-09-09)
+
+Android-only. Desktop Collector was not adopted.
+
+- ChatGPT Consumer `usageUrl` is `https://chatgpt.com/codex/settings/usage` (Codex Usage, not chatgpt.com home).
+- Grok `usageUrl` is `https://grok.com/?_s=usage`.
+- Parser 1.1.0 reads Codex 5h/weekly/reserve/banked resets/credits and Grok weekly/product/reset/credits.
+- After sign-in confirmation the WebView opens the usage page and retries DOM text reads for SPA content.
+- Isolated WebView profiles are unchanged. Custom Tabs are not used for collection (no session return). GeckoView is not shipped.
+- Google WebView block and Grok device-verification pages show a specific message. Email sign-in remains the in-app path.
+- `versionCode` is 4.
+- Device usage-number reads are **not complete**.
+
+| Command | Result |
+| --- | --- |
+| `testDebugUnitTest` | PASS — 24 tests, 0 failures |
+| `lintDebug` | PASS — 0 errors, 46 warnings |
+| `assembleDebug` | PASS — signed with upload key |
+| `assembleRelease` | PASS — signed with upload key |
+| `assembleDebugAndroidTest` | PASS — compile only |
+| Device Codex/Grok usage numbers | NOT RUN |
+
+| File | SHA-256 |
+| --- | --- |
+| `eslee-llm-usage-v0.1.3-debug.apk` | `ee24ee581bf269c376dfef0df32c994ee6c535865a9c4e52849d0934200b5b9b` |
+| `eslee-llm-usage-v0.1.3-release.apk` | `0d9d08d0dc6403622cdfdc57509e21f5c0cae0e55c77fcd74d4d6e93679606fa` |
+
+## v0.1.2 (2026-09-09)
 
 ## v0.1.2 (2026-09-09)
 

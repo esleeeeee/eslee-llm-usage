@@ -6,7 +6,7 @@ import java.time.OffsetDateTime
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.0.0"
+    const val VERSION = "1.1.0"
     private data class Label(val id: String, val title: String, val pattern: Regex)
     private fun label(id: String, title: String, pattern: String) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE))
     private val labels = mapOf(
@@ -16,9 +16,11 @@ object ConsumerUsageParser {
         "claude" to listOf(label("session", "Current session", "current session|5[- ]hour(?: session)?|현재 세션|5시간"),
             label("weekly", "Weekly usage", "weekly(?: usage| limits?)?|all models|주간(?: 사용량| 한도)?|모든 모델"),
             label("sonnet", "Sonnet", "sonnet only|sonnet만")),
-        "chatgpt" to listOf(label("codex", "Codex usage", "codex(?: usage)?|코덱스 사용량"),
+        "chatgpt" to listOf(
+            label("session", "5-hour usage", "5[- ]hour|five[- ]hour|5h(?:\\s+(?:usage|limit))?|세션 사용량|5시간"),
             label("weekly", "Weekly usage", "weekly usage|weekly limit|주간 사용량|주간 한도"),
-            label("session", "Session usage", "session usage|5[- ]hour(?: usage| limit)?|세션 사용량|5시간"),
+            label("reserve", "Reserve usage", "gpt-reserve|reserve(?: usage| limit)?|spark"),
+            label("session", "Codex usage", "codex(?: usage)?|코덱스 사용량"),
             label("work", "Work usage", "work usage|작업 사용량"),
             label("model", "Model usage", "^(?:GPT[- ][\\w. -]+|o[134](?:[- ][\\w. -]+)?)(?:usage|limit|사용량|한도)?$")),
     )
@@ -49,24 +51,46 @@ object ConsumerUsageParser {
                 usedPercent = percent.takeUnless { remaining }, remainingPercent = percent.takeIf { remaining }, resetAt = resetAt,
                 confidence = Confidence.REPORTED, scope = if (label.id in setOf("weekly", "session")) QuotaScope.ACCOUNT else QuotaScope.FEATURE))
         }.distinctBy { it.id }
-        if (buckets.isEmpty()) {
+        val withResets = buckets + listOfNotNull(parseBankedResets(visibleText))
+        if (withResets.isEmpty()) {
             val login = Regex("sign in to|log in to|continue with (google|apple)|이메일로 로그인|로그인하세요", RegexOption.IGNORE_CASE).containsMatchIn(visibleText)
             return ProviderResult.Failure(if (login) ProviderErrorCode.AUTH_REQUIRED else ProviderErrorCode.PARSE_FAILED,
                 if (login) "서비스에 직접 로그인한 뒤 사용량 화면을 여세요." else "알려진 사용량 숫자나 명시적인 리셋 시각을 찾지 못했습니다. 이전 결과를 유지합니다.")
         }
-        val creditLine = Regex("Extra Usage Credits[\\s:]*\\$([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE).find(visibleText)
-        val credit = if (providerId == "grok") creditLine?.groupValues?.get(1)?.toDoubleOrNull()?.let(::CreditBalance) else null
-        val plan = Regex("\\b(SuperGrok(?: Heavy)?|Claude (?:Pro|Max)|ChatGPT (?:Plus|Pro|Business))\\b", RegexOption.IGNORE_CASE).find(visibleText)?.value
-        return ProviderResult.Success(UsageSnapshot(accountId, providerId, buckets, fetchedAt, SnapshotSource.VISIBLE_PAGE,
+        val creditLine = Regex("(?:Extra Usage Credits|Credits)[\\s:]*\\$([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE).find(visibleText)
+        val credit = if (providerId in setOf("grok", "chatgpt")) creditLine?.groupValues?.get(1)?.toDoubleOrNull()?.let(::CreditBalance) else null
+        val plan = Regex("\\b(SuperGrok(?:\\s+(?:Plus|Heavy|Pro))?|Claude (?:Pro|Max)|ChatGPT (?:Plus|Pro|Business|Go))\\b", RegexOption.IGNORE_CASE).find(visibleText)?.value
+        val primary = when {
+            providerId == "claude" -> "session"
+            providerId == "chatgpt" && withResets.any { it.id == "session" } -> "session"
+            else -> "weekly"
+        }
+        return ProviderResult.Success(UsageSnapshot(accountId, providerId, withResets, fetchedAt, SnapshotSource.VISIBLE_PAGE,
             "공식 화면의 표시 텍스트 · parser $VERSION · 표시되지 않은 값은 알 수 없음", planName = plan, extraCredits = credit,
-            syncMode = SyncMode.FOREGROUND_ONLY, status = if (buckets.any { it.usedPercent == null && it.used == null }) SnapshotStatus.PARTIAL else SnapshotStatus.SUCCESS,
-            primaryBucketId = if (providerId == "claude") "session" else "weekly", parserVersion = VERSION))
+            syncMode = SyncMode.FOREGROUND_ONLY, status = if (withResets.any { it.usedPercent == null && it.used == null && it.remaining == null }) SnapshotStatus.PARTIAL else SnapshotStatus.SUCCESS,
+            primaryBucketId = primary, parserVersion = VERSION))
+    }
+
+    private fun parseBankedResets(visibleText: String): UsageBucket? {
+        val count = Regex("(\\d+)\\s+resets?\\s+available|reset available[^\\d]{0,8}(\\d+)|banked resets?[^\\d]{0,8}(\\d+)", RegexOption.IGNORE_CASE)
+            .find(visibleText)?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toDoubleOrNull() } ?: return null
+        return UsageNormalizer.normalize(UsageBucket("resets", "Banked resets", remaining = count, unit = UsageUnit.REQUESTS,
+            confidence = Confidence.REPORTED, scope = QuotaScope.ACCOUNT))
     }
 
     internal fun parseReset(section: String, now: Long): Long? {
         val line = section.lineSequence().firstOrNull { resetLabel.containsMatchIn(it) } ?: return null
         val iso = Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})").find(line)?.value
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+        val dated = Regex("(\\d{4}-\\d{2}-\\d{2})(?:(?:[ T]| at )(\\d{2}:\\d{2})(?::(\\d{2}))?)?(?:\\s*(Z|UTC|[+-]\\d{2}:?\\d{2}))?", RegexOption.IGNORE_CASE).find(line)
+        if (dated != null) {
+            val date = dated.groupValues[1]
+            val hm = dated.groupValues[2].ifBlank { "00:00" }
+            val sec = dated.groupValues[3].ifBlank { "00" }
+            val zone = dated.groupValues[4].ifBlank { "Z" }.let { if (it.equals("UTC", true)) "Z" else it }
+            val stamp = "${date}T$hm:$sec${if (zone.startsWith("+") || zone.startsWith("-") || zone == "Z") zone else "Z"}"
+            runCatching { OffsetDateTime.parse(stamp).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
+        }
         if (!Regex("\\bin\\b|후", RegexOption.IGNORE_CASE).containsMatchIn(line)) return null
         val hours = Regex("(\\d+)\\s*(?:hours?|hrs?|h\\b|시간)", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0
         val minutes = Regex("(\\d+)\\s*(?:minutes?|mins?|m\\b|분)", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0

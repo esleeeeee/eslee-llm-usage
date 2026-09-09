@@ -36,7 +36,9 @@
     <string name="web_close">닫기</string>
     <string name="web_cleanup_failed">세션 정리를 다시 시도해야 합니다. 계정 화면에서 해당 계정을 삭제하세요.</string>
     <string name="web_login_check">로그인 확인</string>
-    <string name="web_login_confirmed">로그인된 페이지를 확인했습니다. 사용량 페이지를 열어 동기화하세요.</string>
+    <string name="web_login_confirmed">로그인했습니다. 사용량 페이지를 열어 값을 읽습니다.</string>
+    <string name="web_google_webview_block">Google이 앱 내부 브라우저를 거부했습니다. 이 페이지의 이메일 로그인을 사용하세요. Custom Tabs는 격리 profile에 세션을 넘기지 못해 Usage 수집 경로로 쓰지 않습니다.</string>
+    <string name="web_device_verification">기기를 확인하는 화면입니다. 끝날 때까지 기다리세요. 끝나지 않으면 Grok이 이 WebView를 막고 있어 사용량을 읽을 수 없습니다.</string>
     <string name="web_usage_check">사용량 읽기</string>
     <string name="web_usage_page">사용량 페이지</string>
     <string name="web_unsupported">계정별 격리 세션을 사용하려면 Android System WebView를 업데이트하세요.</string>

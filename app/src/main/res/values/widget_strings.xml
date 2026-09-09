@@ -36,7 +36,9 @@
     <string name="web_close">Close</string>
     <string name="web_cleanup_failed">Session cleanup needs retry. Remove this account from Accounts.</string>
     <string name="web_login_check">Check sign-in</string>
-    <string name="web_login_confirmed">Signed-in page confirmed. Open the usage page to sync.</string>
+    <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>
+    <string name="web_google_webview_block">Google blocked this in-app browser. Use email sign-in on this page. Custom Tabs cannot hand a session back to the isolated profile, so they are not used for usage collection.</string>
+    <string name="web_device_verification">This page is verifying the device. Stay here until it finishes. If it never completes, Grok is blocking this WebView and usage cannot be read.</string>
     <string name="web_usage_check">Read usage</string>
     <string name="web_usage_page">Usage page</string>
     <string name="web_unsupported">Update Android System WebView to use isolated account sessions.</string>

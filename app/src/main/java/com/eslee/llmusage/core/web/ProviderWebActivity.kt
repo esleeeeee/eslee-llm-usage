@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Message
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
@@ -23,6 +24,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import com.eslee.llmusage.R
+import com.eslee.llmusage.app.AppGraph
 import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.core.model.SnapshotStatus
 import com.eslee.llmusage.provider.ProviderDefinition
@@ -35,6 +37,8 @@ class ProviderWebActivity : ComponentActivity() {
     private var verified = false
     private var closing = false
     private var provisionalId: String? = null
+    private var autoReadToken = 0
+    private var reading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdgeContent()
@@ -108,6 +112,21 @@ class ProviderWebActivity : ComponentActivity() {
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     host.text = Uri.parse(url).host.orEmpty()
+                    view.evaluateJavascript(PAGE_TEXT_JS) { encoded ->
+                        val pageText = runCatching { JSONTokener(encoded).nextValue() as? String }.getOrNull().orEmpty()
+                        when (UsageSurface.classify(url, pageText)) {
+                            AuthPageKind.GOOGLE_WEBVIEW_BLOCK ->
+                                Toast.makeText(this@ProviderWebActivity, R.string.web_google_webview_block, Toast.LENGTH_LONG).show()
+                            AuthPageKind.DEVICE_VERIFICATION ->
+                                Toast.makeText(this@ProviderWebActivity, R.string.web_device_verification, Toast.LENGTH_LONG).show()
+                            else -> Unit
+                        }
+                        val state = PageAuthStateDetector.detect(url, pageText, false)
+                        if (state != PageAuthState.SIGNED_OUT && UsageSurface.isUsagePage(url, provider.usageUrl)) {
+                            verified = true
+                            scheduleUsageRead(view, accountId, graph, provider)
+                        }
+                    }
                 }
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: android.net.http.SslError) {
                     handler.cancel()
@@ -148,29 +167,12 @@ class ProviderWebActivity : ComponentActivity() {
             read.setOnClickListener {
                 val current = web.url.orEmpty()
                 if (!WebNavigationPolicy.allows(current, provider.allowedHosts)) return@setOnClickListener
-                val sourceUrl = current
-                read.isEnabled = false
-                web.evaluateJavascript(PAGE_TEXT_JS) { encoded ->
-                    val pageText = if (web.url == sourceUrl) runCatching { JSONTokener(encoded).nextValue() as? String }.getOrNull() else null
-                    lifecycleScope.launch {
-                        try {
-                            if (pageText.isNullOrBlank()) {
-                                Toast.makeText(this@ProviderWebActivity, R.string.web_read_failed, Toast.LENGTH_LONG).show()
-                            } else {
-                                val before = graph.repository.latest(accountId)?.snapshotId
-                                graph.repository.recordWeb(accountId, pageText)
-                                val after = graph.repository.latest(accountId)
-                                val parsed = after != null && after.snapshotId != before && after.status != SnapshotStatus.PARTIAL
-                                if (after != null && after.snapshotId != before) verified = true
-                                Toast.makeText(
-                                    this@ProviderWebActivity,
-                                    if (parsed) R.string.web_read_complete else R.string.web_read_failed,
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        } finally { read.isEnabled = true }
-                    }
+                val usage = provider.usageUrl
+                if (usage != null && !UsageSurface.isUsagePage(current, usage) && WebNavigationPolicy.allows(usage, provider.allowedHosts)) {
+                    web.loadUrl(usage)
+                    return@setOnClickListener
                 }
+                readUsage(web, accountId, graph, provider, toast = true)
             }
             toolbar.addView(read)
             webHost.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -224,6 +226,71 @@ class ProviderWebActivity : ComponentActivity() {
         }
     }
 
+    private fun scheduleUsageRead(
+        web: WebView,
+        accountId: String,
+        graph: AppGraph,
+        provider: ProviderDefinition,
+        attempt: Int = 0,
+    ) {
+        val token = ++autoReadToken
+        web.postDelayed({
+            if (token != autoReadToken || closing) return@postDelayed
+            readUsage(web, accountId, graph, provider, toast = attempt >= 3) { success ->
+                if (!success && attempt < 4 && token == autoReadToken) {
+                    scheduleUsageRead(web, accountId, graph, provider, attempt + 1)
+                }
+            }
+        }, if (attempt == 0) 1_200L else 1_500L)
+    }
+
+    private fun readUsage(
+        web: WebView,
+        accountId: String,
+        graph: AppGraph,
+        provider: ProviderDefinition,
+        toast: Boolean,
+        done: (Boolean) -> Unit = {},
+    ) {
+        val current = web.url.orEmpty()
+        if (!WebNavigationPolicy.allows(current, provider.allowedHosts)) {
+            done(false)
+            return
+        }
+        if (reading) {
+            done(false)
+            return
+        }
+        reading = true
+        val sourceUrl = current
+        web.evaluateJavascript(PAGE_TEXT_JS) { encoded ->
+            val pageText = if (web.url == sourceUrl) runCatching { JSONTokener(encoded).nextValue() as? String }.getOrNull() else null
+            lifecycleScope.launch {
+                try {
+                    if (pageText.isNullOrBlank()) {
+                        if (toast) Toast.makeText(this@ProviderWebActivity, R.string.web_read_failed, Toast.LENGTH_LONG).show()
+                        done(false)
+                    } else {
+                        val before = graph.repository.latest(accountId)?.snapshotId
+                        graph.repository.recordWeb(accountId, pageText)
+                        val after = graph.repository.latest(accountId)
+                        val stored = after != null && after.snapshotId != before
+                        if (stored) verified = true
+                        val parsed = stored && after.status != SnapshotStatus.PARTIAL
+                        if (toast) {
+                            Toast.makeText(
+                                this@ProviderWebActivity,
+                                if (parsed) R.string.web_read_complete else R.string.web_read_failed,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        done(parsed)
+                    }
+                } finally { reading = false }
+            }
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("verified", verified)
         super.onSaveInstanceState(outState)
@@ -249,6 +316,8 @@ class ProviderWebActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun secureSettings(web: WebView) {
         WebView.setWebContentsDebuggingEnabled(false)
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true

@@ -26,8 +26,12 @@ object PageAuthStateDetector {
         if (hasComposer && host in setOf("chatgpt.com", "www.chatgpt.com", "chat.openai.com", "grok.com", "www.grok.com")) {
             return PageAuthState.SIGNED_IN
         }
+        if (path.contains("/codex/settings/usage") || queryContainsUsage(uri)) return PageAuthState.SIGNED_IN
         return PageAuthState.UNKNOWN
     }
+
+    private fun queryContainsUsage(uri: URI?): Boolean =
+        uri?.query.orEmpty().lowercase().split('&').any { it == "_s=usage" || it.startsWith("_s=usage") }
 }
 
 fun startUrl(loginUrl: String?, usageUrl: String?, newAccount: Boolean): String? =

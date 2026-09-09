@@ -15,6 +15,8 @@ class WebNavigationPolicyTest {
     @Test fun oauthHostsAreAllowedOnConsumerLogin() {
         val chatgpt = WebNavigationPolicy.withOAuth(setOf("chatgpt.com", "auth.openai.com"))
         val grok = WebNavigationPolicy.withOAuth(setOf("grok.com", "accounts.x.ai"))
+        assertTrue(WebNavigationPolicy.allows("https://chatgpt.com/codex/settings/usage", chatgpt))
+        assertTrue(WebNavigationPolicy.allows("https://grok.com/?_s=usage", grok))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/v2/auth", chatgpt))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", grok))
         assertTrue(WebNavigationPolicy.allows("https://appleid.apple.com/auth/authorize", chatgpt))

@@ -28,6 +28,18 @@ class ConsumerUsageParserTest {
         assertNull(snapshot.buckets.first().usedPercent)
         assertNotNull(snapshot.buckets.first().resetAt)
     }
+    @Test fun chatgptCodexDashboardReadsWindowsCreditsAndResets() {
+        val snapshot = (parsed("chatgpt", "usage_dashboard") as ProviderResult.Success).snapshot
+        assertEquals("ChatGPT Plus", snapshot.planName)
+        assertEquals("session", snapshot.primaryBucketId)
+        assertEquals(20.0, snapshot.buckets.first { it.id == "session" }.usedPercent!!, 0.0)
+        assertEquals(now + 5_400_000, snapshot.buckets.first { it.id == "session" }.resetAt)
+        assertEquals(25.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), snapshot.buckets.first { it.id == "weekly" }.resetAt)
+        assertEquals(0.0, snapshot.buckets.first { it.id == "reserve" }.usedPercent!!, 0.0)
+        assertEquals(3.0, snapshot.buckets.first { it.id == "resets" }.remaining!!, 0.0)
+        assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
+    }
     @Test fun unknownChangedAndLoginNeverBecomeZeroSuccess() {
         for (provider in listOf("grok", "claude", "chatgpt")) {
             for (fixture in listOf("usage_unknown", "parser_changed")) assertTrue(parsed(provider, fixture) is ProviderResult.Failure)

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "eslee LLM Usage Grok Collector POC",
+  "version": "0.0.1",
+  "description": "Reads visible SuperGrok Settings Usage text in this browser profile. Does not send cookies or tokens.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["https://grok.com/*"],
+  "action": { "default_title": "Read Grok usage" },
+  "content_scripts": [
+    {
+      "matches": ["https://grok.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 
 - 실제 Provider 계정으로 로그인·조회한 결과는 아직 검증하지 않았습니다. 공식 API 구현의 상태는 OFFICIAL_UNVERIFIED입니다.
 - 소비자 연결은 사용자가 화면에 표시한 내용만 읽는 실험적 parser입니다. 웹 UI 변경이나 표현 차이로 읽기가 실패할 수 있습니다. private endpoint나 구독 OAuth token을 사용하지 않습니다.
-- 일부 소셜 로그인은 embedded WebView를 차단합니다. 차단을 우회하지 않으며 이메일 로그인이 가능한지는 서비스별로 다릅니다.
+- 일부 소셜 로그인은 embedded WebView를 차단합니다. 차단을 우회하지 않으며 이메일 로그인이 가능한지는 서비스별로 다릅니다. Custom Tabs는 격리 WebView profile에 세션을 넘기지 못해 Usage 수집 경로로 쓰지 않습니다. GeckoView는 아직 넣지 않았습니다.
+- v0.1.3부터 ChatGPT Consumer는 일반 홈이 아니라 Codex Usage(`https://chatgpt.com/codex/settings/usage`)를 읽습니다. Grok은 `https://grok.com/?_s=usage`입니다. 실기기에서 숫자를 읽기 전에는 완료가 아닙니다.
 - WebView MULTI_PROFILE 미지원 환경에서는 공유 세션으로 대체하지 않고 웹 계정 추가를 막습니다.
 - 초기 parser는 제한된 한국어/영어 label을 인식합니다. 명시적 timezone을 가진 ISO 시각과 상대 시간 외의 모호한 날짜는 unknown으로 유지합니다.
 - OpenAI API는 completions 활동만, Anthropic API는 messages 토큰만, xAI API는 팀 비용만 조회합니다. 전체 API 상품이나 결제 청구서를 대표하지 않습니다. 조회 구간은 UTC 오늘입니다.
