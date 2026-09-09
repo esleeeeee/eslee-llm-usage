@@ -1,0 +1,17 @@
+# 알려진 제한
+
+- 실제 Provider 계정으로 로그인·조회한 결과는 아직 검증하지 않았습니다. 공식 API 구현의 상태는 OFFICIAL_UNVERIFIED입니다.
+- 소비자 연결은 사용자가 화면에 표시한 내용만 읽는 실험적 parser입니다. 웹 UI 변경이나 표현 차이로 읽기가 실패할 수 있습니다. private endpoint나 구독 OAuth token을 사용하지 않습니다.
+- 일부 소셜 로그인은 embedded WebView를 차단합니다. 차단을 우회하지 않으며 이메일 로그인이 가능한지는 서비스별로 다릅니다.
+- WebView MULTI_PROFILE 미지원 환경에서는 공유 세션으로 대체하지 않고 웹 계정 추가를 막습니다.
+- 초기 parser는 제한된 한국어/영어 label을 인식합니다. 명시적 timezone을 가진 ISO 시각과 상대 시간 외의 모호한 날짜는 unknown으로 유지합니다.
+- OpenAI API는 completions 활동만, Anthropic API는 messages 토큰만, xAI API는 팀 비용만 조회합니다. 전체 API 상품이나 결제 청구서를 대표하지 않습니다. 조회 구간은 UTC 오늘입니다.
+- Consumer 연결은 foreground 전용입니다. WorkManager 예약 갱신은 Android 전원 정책에 따라 지연될 수 있습니다.
+- 위젯의 1x1~5x5는 launcher 셀 수 보장이 아니라 실제 dp 크기를 기준으로 대응합니다. RING_OPTIONAL은 bitmap 없이 bar로 대체합니다.
+- 스냅샷 원본 신뢰도와 오래된 데이터 상태를 분리합니다. 최신 조회 실패 시 마지막 성공 데이터가 남습니다.
+- 배포 서명 키는 저장소에 포함하지 않습니다. unsigned release APK는 직접 설치할 수 없으며 본인의 서명 절차가 필요합니다.
+
+- 이 환경에서는 에뮬레이터/실기기가 없어 instrumentation과 위젯 런처 검증을 실행하지 못했습니다.
+- Provider 설명·bucket label 일부와 parser 메시지는 아직 코드 문자열입니다. UI 리소스 EN/KO와 완전히 분리되지 않았습니다.
+
+기기별 테스트와 미실행 항목은 BUILD_REPORT.md에 기록합니다.

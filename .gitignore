@@ -1,0 +1,15 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+*.jks
+*.keystore
+.env*
+.spec/
+artifacts/
+*.log
+captures/
+.handoff/
+GROK_BUILD_HANDOFF.md
