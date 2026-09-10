@@ -7,6 +7,7 @@ import com.eslee.llmusage.core.database.*
 import com.eslee.llmusage.core.model.*
 import com.eslee.llmusage.core.security.CredentialStore
 import com.eslee.llmusage.core.web.ProfileSessions
+import com.eslee.llmusage.core.web.WebUsageReader
 import com.eslee.llmusage.provider.*
 import com.eslee.llmusage.settings.SettingsStore
 import com.eslee.llmusage.widget.WidgetConfig
@@ -29,7 +30,9 @@ class UsageRepository(
     private val registry: ProviderRegistry,
     private val credentials: CredentialStore,
     private val settings: SettingsStore,
+    private val consumerFetch: (suspend (Account, ProviderDefinition) -> ProviderResult)? = null,
 ) {
+    private val webReader = WebUsageReader(context)
     private val dao = database.dao()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val locks = ConcurrentHashMap<String, Mutex>()
@@ -86,7 +89,10 @@ class UsageRepository(
             if ((retryAt[id] ?: 0) > System.currentTimeMillis()) return
             val started = System.currentTimeMillis()
             val result = try {
-                if (registry.definition(account.providerId)?.capabilities?.supportsBackgroundSync != true) {
+                if (account.authMode == AuthMode.WEB_PROFILE) {
+                    val provider = requireNotNull(registry.definition(account.providerId))
+                    consumerFetch?.invoke(account, provider) ?: webReader.fetch(account, provider)
+                } else if (registry.definition(account.providerId)?.capabilities?.supportsBackgroundSync != true) {
                     ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "FOREGROUND_REQUIRED")
                 } else {
                     val bytes = credentials.getSecret(id)
@@ -101,25 +107,25 @@ class UsageRepository(
         updateWidgets(context)
     }
 
-    suspend fun refreshAll() = supervisorScope {
+    suspend fun refreshAll(webOnly: Boolean? = null) = supervisorScope {
         dao.accounts().map { json.decodeFromString<Account>(it.payload) }
             .filter { it.enabled && registry.definition(it.providerId)?.capabilities?.supportsBackgroundSync == true }
+            .filter { webOnly == null || (it.authMode == AuthMode.WEB_PROFILE) == webOnly }
             .map { account -> async { try { refresh(account.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { } } }.awaitAll()
         cleanup()
     }
 
-    suspend fun recordWeb(id: String, text: String, userEntered: Boolean = false) {
-        locks.getOrPut(id) { Mutex() }.withLock {
-            val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE } ?: return
+    suspend fun recordWeb(id: String, text: String): ProviderResult {
+        val stored = locks.getOrPut(id) { Mutex() }.withLock {
+            val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE }
+                ?: return@withLock ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "계정을 사용할 수 없습니다.")
             val started = System.currentTimeMillis()
             val result = withContext(Dispatchers.Default) { ConsumerUsageParser.parse(account.providerId, id, text, started) }
-            val attributed = if (userEntered && result is ProviderResult.Success) {
-                ProviderResult.Success(result.snapshot.copy(source = SnapshotSource.USER_ENTERED,
-                    note = "사용자가 붙여넣은 사용량 텍스트 · parser ${ConsumerUsageParser.VERSION} · 자동 갱신되지 않음"))
-            } else result
-            saveResult(account, attributed, started)
+            saveResult(account, result, started)
+            result
         }
         updateWidgets(context)
+        return stored
     }
 
     private suspend fun saveResult(account: Account, result: ProviderResult, started: Long) {

@@ -54,7 +54,7 @@ private fun Content(context: Context, config: WidgetConfig, rows: List<WidgetAcc
                 val tap = if(config.tap == WidgetTap.AUTO) if(compact) WidgetTap.OPEN_ACCOUNT else WidgetTap.OPEN_APP else config.tap
                 val target = when {
                     missing -> configIntent(context,config.appWidgetId)
-                    (tap == WidgetTap.OPEN_PROVIDER || tap == WidgetTap.REFRESH) && row.account?.authMode == AuthMode.WEB_PROFILE -> Intent(context,ProviderWebActivity::class.java).putExtra("accountId",row.account?.id)
+                    tap == WidgetTap.OPEN_PROVIDER && row.account?.authMode == AuthMode.WEB_PROFILE -> Intent(context,ProviderWebActivity::class.java).putExtra("accountId",row.account?.id)
                     tap == WidgetTap.OPEN_PROVIDER && row.providerUrl?.startsWith("https://") == true -> Intent(Intent.ACTION_VIEW,android.net.Uri.parse(row.providerUrl))
                     tap == WidgetTap.REFRESH -> Intent(context,WidgetRefreshActivity::class.java).putExtra("accountId",row.account?.id)
                     else -> Intent(context,MainActivity::class.java).apply { if(tap == WidgetTap.OPEN_ACCOUNT) putExtra("accountId",row.account?.id) }

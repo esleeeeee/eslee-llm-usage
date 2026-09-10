@@ -37,8 +37,8 @@
     <string name="web_cleanup_failed">Session cleanup needs retry. Remove this account from Accounts.</string>
     <string name="web_login_check">Check sign-in</string>
     <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>
-    <string name="web_google_webview_block">A sign-in error was detected. Google restricts embedded browser sign-in. Open the default browser, sign in, and paste the usage text.</string>
-    <string name="web_device_verification">The service is verifying your device. If it stays here, open the default browser, sign in, and paste the usage text.</string>
+    <string name="web_google_webview_block">A sign-in error was detected. Google restricts embedded browser sign-in. Try another sign-in method offered by the service.</string>
+    <string name="web_device_verification">The service is verifying your device. If it stays here, check your sign-in. Previously saved usage is retained.</string>
     <string name="web_usage_check">Read usage</string>
     <string name="web_usage_page">Usage page</string>
     <string name="web_unsupported">Update Android System WebView to use isolated account sessions.</string>
@@ -51,9 +51,7 @@
     <string name="web_read_complete">Usage check completed. Return to the account to see the result.</string>
     <string name="web_read_failed">Usage could not be read. Check the page and try again.</string>
     <string name="web_close_auth_window">Close auth window</string>
-    <string name="web_open_browser">Open in browser</string>
-    <string name="web_import_text">Paste usage text</string>
-    <string name="web_import_hint">Paste usage labels together with their values.</string>
-    <string name="web_import_explanation">Sign in to the intended account in your browser, copy the usage page text, and paste it here. Browser login is not transferred into this app. This saves only the usage you paste.</string>
+<string name="web_reading">Reading and saving usage…</string><string name="web_saved_at">Usage saved · %1$s</string>
+<string name="consumer_sync_schedule">Auto-sync: every 15 minutes in the background, every 5 minutes while open. Battery restrictions may delay updates.</string>
 </resources>
 

@@ -43,7 +43,7 @@ fun interface UsageProvider { suspend fun fetch(account: Account, secret: String
 
 class ProviderRegistry(debug: Boolean) {
     private val official = ProviderCapabilities(supportsBackgroundSync = true, supportsOfficialApi = true, requiresAdminKey = true)
-    private val web = ProviderCapabilities(supportsForegroundSync = true, supportsConsumerWeb = true,
+    private val web = ProviderCapabilities(supportsBackgroundSync = true, supportsForegroundSync = true, supportsConsumerWeb = true,
         supportsPlanInfo = true, supportsResetTime = true, supportsPercentUsage = true)
     val definitions: List<ProviderDefinition> = buildList {
         add(consumer("chatgpt", "Codex", "chatgpt.com", "https://chatgpt.com/auth/login", "https://chatgpt.com/codex/settings/usage",

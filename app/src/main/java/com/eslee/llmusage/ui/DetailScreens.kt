@@ -106,7 +106,7 @@ internal fun DetailScreen(overview: AccountOverview, graph: AppGraph, settings: 
         item {
             SectionTitle(R.string.connection_info)
             graph.registry.definition(account.providerId)?.let { Text(connectorLabel(it.status)) }
-            Text(stringResource(if (account.authMode == AuthMode.WEB_PROFILE) R.string.foreground else R.string.background))
+            Text(stringResource(if (account.authMode == AuthMode.WEB_PROFILE) R.string.consumer_sync_schedule else R.string.background))
             snapshot?.let { Text(stringResource(R.string.source, stringResource(when (it.source) {
                 SnapshotSource.OFFICIAL_API -> R.string.api_source; SnapshotSource.VISIBLE_PAGE -> R.string.web_source
                 SnapshotSource.DEMO -> R.string.demo; SnapshotSource.USER_ENTERED -> R.string.user_source

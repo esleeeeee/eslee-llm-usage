@@ -11,12 +11,13 @@ import java.util.Locale
  data class WidgetAccountRow(val account: Account?, val provider: String, val values: List<WidgetValue>, val status: String?, val synced: String?, val providerUrl: String?)
  data class WidgetValue(val label: String, val text: String, val percent: Float?, val reset: String)
  object WidgetStateMapper {
-    suspend fun rows(context: Context, config: WidgetConfig): List<WidgetAccountRow> {
+    suspend fun rows(context: Context, config: WidgetConfig, repository: com.eslee.llmusage.usage.UsageRepository? = null): List<WidgetAccountRow> {
         val graph = (context.applicationContext as UsageApplication).graph
+        val source = repository ?: graph.repository
         val settings = graph.settings.current()
         return config.selections.map { selection ->
-            val account = graph.repository.account(selection.accountId)
-            val snapshot = account?.let { graph.repository.latest(it.id) }
+            val account = source.account(selection.accountId)
+            val snapshot = account?.let { source.latest(it.id) }
             val primary = snapshot?.let { UsagePresentation.primary(it,account?.primaryBucketId) }
             val buckets = when (selection.bucketSelector) {
                 "ALL_PRIMARY" -> snapshot?.buckets.orEmpty()

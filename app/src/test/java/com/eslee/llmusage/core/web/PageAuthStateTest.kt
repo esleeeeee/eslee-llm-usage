@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PageAuthStateTest {
+    @Test fun usageValuesDoNotOverrideAuthenticationChecks() {
+        val url = "https://chatgpt.com/codex/usage"
+        val expected = "https://chatgpt.com/codex/settings/usage"
+        val usage = "5시간 사용 한도\n45%\n남음"
+        assertTrue(UsageSurface.canCollect(url, expected, usage, false))
+        assertEquals(false, UsageSurface.canCollect(url, expected, usage, true))
+        assertEquals(false, UsageSurface.canCollect(url, expected, "$usage\nVerifying your device", false))
+        assertEquals(false, UsageSurface.canCollect("https://accounts.google.com/", expected, usage, false))
+    }
     @Test fun loadingUsageUrlAloneDoesNotVerifyLogin() {
         assertEquals(PageAuthState.UNKNOWN, PageAuthStateDetector.detect("https://chatgpt.com/codex/settings/usage", "Loading", false))
         assertEquals(PageAuthState.UNKNOWN, PageAuthStateDetector.detect("https://grok.com/?_s=usage", "Verifying your device", false))

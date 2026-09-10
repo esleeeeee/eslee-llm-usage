@@ -6,6 +6,16 @@ enum class AuthPageKind { USAGE, LOGIN, GOOGLE_WEBVIEW_BLOCK, DEVICE_VERIFICATIO
 
 /** Classifies provider pages without reading cookies, tokens, or credentials. */
 object UsageSurface {
+    fun canCollect(url: String, usageUrl: String?, text: String, hasPassword: Boolean): Boolean =
+        !hasPassword && isProviderPage(url, usageUrl) && classify(url, text) !in
+            setOf(AuthPageKind.LOGIN, AuthPageKind.GOOGLE_WEBVIEW_BLOCK, AuthPageKind.DEVICE_VERIFICATION)
+
+    fun isProviderPage(url: String, usageUrl: String?): Boolean {
+        val current = runCatching { URI(url) }.getOrNull() ?: return false
+        val expected = usageUrl?.let { runCatching { URI(it) }.getOrNull() } ?: return false
+        return current.scheme.equals("https", true) && current.userInfo == null && current.port in listOf(-1, 443) &&
+            current.host?.lowercase()?.removePrefix("www.") == expected.host?.lowercase()?.removePrefix("www.")
+    }
     fun isUsagePage(url: String, usageUrl: String?): Boolean {
         val current = runCatching { URI(url) }.getOrNull() ?: return false
         val expected = usageUrl?.let { runCatching { URI(it) }.getOrNull() } ?: return false

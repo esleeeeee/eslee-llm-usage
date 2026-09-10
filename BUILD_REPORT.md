@@ -1,6 +1,20 @@
 # Build report
 
-Status: v0.1.4 source fixes and local verification completed. Actual Google/Grok authentication and device usage reads remain unverified.
+Status: v0.1.5 automatic consumer collection implemented. Local unit/lint/build checks passed; Android WebView integration execution is now a required GitHub release gate.
+
+## v0.1.5 (2026-09-11)
+
+- Replace paste/manual-page workaround with account-profile WebView collection for scheduled, app, and widget refresh.
+- Consumer scheduling: 15-minute WorkManager requests (OS may delay), 5-minute refresh while the app screen is active. Wi-Fi-only and automatic-sync-off settings are honored.
+- Read current provider content before navigating; retain accounts/sessions on closing the login screen; return the durable save result directly.
+- Review corrections: authenticate before parsing, use the worker run start for retry accounting, stop DOM polling with the Activity lifecycle.
+- Local `testDebugUnitTest`: 29 tests, 0 failures/errors. `lintDebug`: 0 errors, 55 warnings.
+- Initial complete debug/release/androidTest build passed. Final production-source fixes passed unit/lint/androidTest compilation. CI rebuilds all signed artifacts from the committed source.
+- New Android integration tests cover read-button persistence without a navigation loop, delayed DOM, cookies retained across collector WebViews, repeated DB updates, actual Glance RemoteViews values, and last-success retention.
+- The integration tests use local fixture HTML and a test cookie, not real Google/Grok credentials. Their execution is required before publishing; final result is recorded in Notion/GitHub Actions.
+- See [V015_AUTO_SYNC.md](docs/V015_AUTO_SYNC.md) for scope and agent responsibilities.
+
+Local evidence: `.handoff/v015-build.log`, `.handoff/v015-final-local.log` (Git-ignored).
 
 ## v0.1.4 (2026-09-10)
 

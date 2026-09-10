@@ -40,6 +40,8 @@ import com.eslee.llmusage.widget.WidgetConfig
 import com.eslee.llmusage.widget.WidgetConfigStore
 import com.eslee.llmusage.widget.WidgetConfigurationActivity
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.lifecycle.repeatOnLifecycle
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,10 +73,22 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         }
     }
     fun refresh(account: Account) {
-        if (account.authMode == AuthMode.WEB_PROFILE) context.startActivity(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", account.id))
-        else action { graph.repository.refresh(account.id) }
+        action {
+            graph.repository.refresh(account.id)
+            if (account.authMode == AuthMode.WEB_PROFILE && graph.repository.account(account.id)?.lastErrorCode == "AUTH_REQUIRED") {
+                context.startActivity(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", account.id))
+            }
+        }
     }
-    LaunchedEffect(Unit) { runCatching { graph.repository.refreshAll() } }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, settings.intervalMinutes) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                if (com.eslee.llmusage.sync.SyncScheduler.allowsForeground(context, settings)) graph.repository.refreshAll()
+                delay(5 * 60_000L)
+            }
+        }
+    }
     BackHandler(route != "home") { route = "home" }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
         val tabs = listOf(R.string.dashboard, R.string.accounts, R.string.widgets, R.string.settings)

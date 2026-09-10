@@ -11,7 +11,7 @@ import kotlinx.serialization.json.Json
 
 private val Context.settingsDataStore by preferencesDataStore("settings")
 @Serializable data class AppSettings(
-    val intervalMinutes: Long = 60,
+    val intervalMinutes: Long = 15,
     val wifiOnly: Boolean = false,
     val staleHours: Int = 0,
     val retentionDays: Int = 30,
