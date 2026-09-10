@@ -53,7 +53,7 @@ class WebUsageCollectionTest {
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
 
-    @Test fun readButtonStoresCurrentUsageWithoutReloadingRedirectedRoute() = runBlocking {
+    @Test fun readButtonStoresCurrentUsageWithoutReloadingRedirectedRoute(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repository = (context.applicationContext as UsageApplication).graph.repository
         val id = repository.addAccount("chatgpt", "Read button regression")
@@ -88,7 +88,7 @@ class WebUsageCollectionTest {
         } finally { repository.deleteAccount(id) }
     }
 
-    @Test fun delayedWebPageIsSavedAndRepeatedRefreshChangesWidgetValues() = runBlocking {
+    @Test fun delayedWebPageIsSavedAndRepeatedRefreshChangesWidgetValues(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
         var remaining = 45
