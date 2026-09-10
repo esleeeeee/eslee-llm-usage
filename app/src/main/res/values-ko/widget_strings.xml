@@ -37,8 +37,8 @@
     <string name="web_cleanup_failed">세션 정리를 다시 시도해야 합니다. 계정 화면에서 해당 계정을 삭제하세요.</string>
     <string name="web_login_check">로그인 확인</string>
     <string name="web_login_confirmed">로그인했습니다. 사용량 페이지를 열어 값을 읽습니다.</string>
-    <string name="web_google_webview_block">Google이 앱 내부 브라우저를 거부했습니다. 이 페이지의 이메일 로그인을 사용하세요. Custom Tabs는 격리 profile에 세션을 넘기지 못해 Usage 수집 경로로 쓰지 않습니다.</string>
-    <string name="web_device_verification">기기를 확인하는 화면입니다. 끝날 때까지 기다리세요. 끝나지 않으면 Grok이 이 WebView를 막고 있어 사용량을 읽을 수 없습니다.</string>
+    <string name="web_google_webview_block">이 로그인 화면에서 오류가 감지됐습니다. Google은 앱 내 브라우저 로그인을 제한합니다. 기본 브라우저에서 로그인한 뒤 사용량 텍스트를 붙여넣을 수 있습니다.</string>
+    <string name="web_device_verification">서비스가 기기를 확인하고 있습니다. 계속 멈춰 있으면 기본 브라우저에서 열어 로그인한 뒤 사용량 텍스트를 붙여넣으세요.</string>
     <string name="web_usage_check">사용량 읽기</string>
     <string name="web_usage_page">사용량 페이지</string>
     <string name="web_unsupported">계정별 격리 세션을 사용하려면 Android System WebView를 업데이트하세요.</string>
@@ -50,5 +50,10 @@
     <string name="web_session_title">%1$s · %2$s</string>
     <string name="web_read_complete">사용량 확인을 완료했습니다. 계정 화면에서 결과를 확인하세요.</string>
     <string name="web_read_failed">사용량을 읽지 못했습니다. 페이지를 확인하고 다시 시도하세요.</string>
+    <string name="web_close_auth_window">인증 창 닫기</string>
+    <string name="web_open_browser">기본 브라우저에서 열기</string>
+    <string name="web_import_text">사용량 텍스트 붙여넣기</string>
+    <string name="web_import_hint">사용량 화면의 항목 이름과 숫자를 함께 붙여넣으세요.</string>
+    <string name="web_import_explanation">브라우저에서 해당 계정으로 로그인한 뒤 사용량 화면의 텍스트를 복사해 여기에 붙여넣으세요. 브라우저 로그인은 앱으로 이전되지 않으며, 붙여넣은 시점의 사용량만 저장됩니다.</string>
 </resources>
 

@@ -9,6 +9,7 @@ object UsageSurface {
     fun isUsagePage(url: String, usageUrl: String?): Boolean {
         val current = runCatching { URI(url) }.getOrNull() ?: return false
         val expected = usageUrl?.let { runCatching { URI(it) }.getOrNull() } ?: return false
+        if (!current.scheme.equals("https", true) || current.userInfo != null || current.port !in listOf(-1, 443)) return false
         if (!current.host.equals(expected.host, true) &&
             current.host?.removePrefix("www.") != expected.host?.removePrefix("www.")
         ) return false
@@ -16,9 +17,8 @@ object UsageSurface {
         val query = current.query.orEmpty().lowercase()
         val expectedPath = expected.path.orEmpty().lowercase()
         val expectedQuery = expected.query.orEmpty().lowercase()
-        if (expectedQuery.contains("_s=usage")) return query.contains("_s=usage")
-        if (expectedPath.contains("/codex/settings/usage")) return path.contains("/codex/settings/usage")
-        if (expectedPath.contains("/settings/usage")) return path.contains("/settings/usage")
+        if (expectedQuery.split('&').contains("_s=usage")) return query.split('&').contains("_s=usage")
+        if (expectedPath.endsWith("/settings/usage")) return path.trimEnd('/') == expectedPath.trimEnd('/')
         return path == expectedPath || path.startsWith(expectedPath.trimEnd('/') + "/")
     }
 

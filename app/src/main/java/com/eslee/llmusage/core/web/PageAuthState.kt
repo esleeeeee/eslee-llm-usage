@@ -26,12 +26,15 @@ object PageAuthStateDetector {
         if (hasComposer && host in setOf("chatgpt.com", "www.chatgpt.com", "chat.openai.com", "grok.com", "www.grok.com")) {
             return PageAuthState.SIGNED_IN
         }
-        if (path.contains("/codex/settings/usage") || queryContainsUsage(uri)) return PageAuthState.SIGNED_IN
+        val usageCue = Regex("5[- ]hour|5시간 사용 한도|weekly usage|주간 사용 한도|주간 사용량", RegexOption.IGNORE_CASE)
+        if (usageCue.containsMatchIn(visibleText) &&
+            ((host in setOf("chatgpt.com", "www.chatgpt.com") && path.trimEnd('/') == "/codex/settings/usage") ||
+                (host in setOf("grok.com", "www.grok.com") && queryContainsUsage(uri)))) return PageAuthState.SIGNED_IN
         return PageAuthState.UNKNOWN
     }
 
     private fun queryContainsUsage(uri: URI?): Boolean =
-        uri?.query.orEmpty().lowercase().split('&').any { it == "_s=usage" || it.startsWith("_s=usage") }
+        uri?.query.orEmpty().lowercase().split('&').any { it == "_s=usage" }
 }
 
 fun startUrl(loginUrl: String?, usageUrl: String?, newAccount: Boolean): String? =

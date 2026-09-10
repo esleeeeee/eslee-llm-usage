@@ -108,12 +108,16 @@ class UsageRepository(
         cleanup()
     }
 
-    suspend fun recordWeb(id: String, text: String) {
+    suspend fun recordWeb(id: String, text: String, userEntered: Boolean = false) {
         locks.getOrPut(id) { Mutex() }.withLock {
             val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE } ?: return
             val started = System.currentTimeMillis()
             val result = withContext(Dispatchers.Default) { ConsumerUsageParser.parse(account.providerId, id, text, started) }
-            saveResult(account, result, started)
+            val attributed = if (userEntered && result is ProviderResult.Success) {
+                ProviderResult.Success(result.snapshot.copy(source = SnapshotSource.USER_ENTERED,
+                    note = "사용자가 붙여넣은 사용량 텍스트 · parser ${ConsumerUsageParser.VERSION} · 자동 갱신되지 않음"))
+            } else result
+            saveResult(account, attributed, started)
         }
         updateWidgets(context)
     }

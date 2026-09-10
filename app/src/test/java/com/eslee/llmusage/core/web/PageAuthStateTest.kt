@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PageAuthStateTest {
+    @Test fun loadingUsageUrlAloneDoesNotVerifyLogin() {
+        assertEquals(PageAuthState.UNKNOWN, PageAuthStateDetector.detect("https://chatgpt.com/codex/settings/usage", "Loading", false))
+        assertEquals(PageAuthState.UNKNOWN, PageAuthStateDetector.detect("https://grok.com/?_s=usage", "Verifying your device", false))
+        assertEquals(PageAuthState.UNKNOWN, PageAuthStateDetector.detect("https://example.com/codex/settings/usage", "5-hour limit", false))
+    }
+
+    @Test fun usageRoutesMatchExactParametersAndHttps() {
+        val expected = "https://grok.com/?_s=usage"
+        assertEquals(false, UsageSurface.isUsagePage("https://grok.com/?_s=usage-other", expected))
+        assertEquals(false, UsageSurface.isUsagePage("https://grok.com/?next=_s=usage", expected))
+        assertEquals(false, UsageSurface.isUsagePage("http://grok.com/?_s=usage", expected))
+        assertEquals(false, UsageSurface.isUsagePage("https://chatgpt.com/not/codex/settings/usage", "https://chatgpt.com/codex/settings/usage"))
+    }
     @Test fun loginPagesAreSignedOut() {
         assertEquals(PageAuthState.SIGNED_OUT, PageAuthStateDetector.detect("https://chatgpt.com/auth/login", "Log in to start chatting", false))
         assertEquals(PageAuthState.SIGNED_OUT, PageAuthStateDetector.detect("https://auth.openai.com/log-in", "Continue", false))

@@ -2,7 +2,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.1.3.** Android-only. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.1.4.** Android-only. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 
@@ -32,7 +32,7 @@ API 사용량은 ChatGPT Plus, Claude Pro/Max, SuperGrok 구독 한도와 다른
 
 1. debug APK를 Android 9(API 28) 이상 기기에 설치합니다. 로컬 산출물 이름과 checksum은 BUILD_REPORT.md에 있습니다.
 2. 계정 추가에서 서비스를 선택합니다. 디버그에서는 Demo로 화면을 먼저 확인할 수 있습니다.
-3. 소비자 서비스는 앱의 격리된 브라우저에서 직접 로그인한 뒤 사용량 화면을 열고 읽기 버튼을 누릅니다. API 서비스는 필요한 관리 키로 연결을 테스트합니다.
+3. 소비자 서비스는 앱에서 로그인하면 사용량 화면으로 이동하고 표시된 값을 읽습니다. Google 로그인/기기 확인이 막히면 **기본 브라우저에서 열기** → 해당 계정 로그인 → 사용량 화면 텍스트 복사 → 앱의 **사용량 텍스트 붙여넣기**로 저장할 수 있습니다. 수동 입력은 자동 갱신되지 않으며 브라우저 로그인 세션도 앱으로 이전되지 않습니다. API 서비스는 필요한 관리 키로 연결을 테스트합니다.
 4. 홈 화면의 위젯 선택에서 eslee LLM Usage를 추가하고 계정·항목·표시 옵션을 저장합니다.
 5. 홈 화면에서 위젯 크기를 변경하면 실제 dp 크기에 맞춰 요약 정보가 조절됩니다.
 

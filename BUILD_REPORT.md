@@ -1,6 +1,27 @@
 # Build report
 
-Status: v0.1.3 local unit tests, lint, signed debug APK, and signed release APK completed. Device read of Codex/Grok usage numbers has not been run.
+Status: v0.1.4 source fixes and local verification completed. Actual Google/Grok authentication and device usage reads remain unverified.
+
+## v0.1.4 (2026-09-10)
+
+- Fix account-profile OAuth popup lifetime, post-login Usage navigation and delayed page reads.
+- Parser 1.2.0: Korean Codex limits, multiline remaining values, local reset times, zero credits, ARIA text.
+- Add explicit browser text import, recorded as USER_ENTERED; it does not transfer authentication or auto-refresh.
+- versionCode 5. GitHub Actions uses the existing upload key and publishes both debug and release APKs.
+- Full change/device checklist/agent ownership: [V014_FIX_REPORT.md](docs/V014_FIX_REPORT.md).
+
+| Check | Result |
+| --- | --- |
+| testDebugUnitTest | PASS — 28 tests, 0 failures/errors |
+| lintDebug | PASS — 0 errors, 57 warnings |
+| assembleDebug | PASS — local default debug signing, not distribution artifact |
+| assembleRelease | PASS — local unsigned artifact |
+| assembleDebugAndroidTest | PASS — compilation only |
+| Google number matching / Grok device verification / phone UI and widget | NOT RUN — no connected Android device |
+
+Initial offline build failed because dependencies were missing from that cache. The configured existing gradle-home cache resolved dependencies. An in-progress test import error was fixed. Lint initially had an internal Kotlin analysis error; the final stable source passed a focused lint rerun without disabling rules. Final APK/test build passed separately. Local logs: .handoff/v014-lint.log and .handoff/v014-apks.log (ignored by Git).
+
+Install the GitHub Actions-signed APK, not the locally default-signed/unsigned output, to preserve v0.1.3 update compatibility. Publication status and exact CI link are recorded in Notion and the GitHub Release.
 
 ## v0.1.3 (2026-09-09)
 

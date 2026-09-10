@@ -1,13 +1,17 @@
 package com.eslee.llmusage.provider
 
+import com.eslee.llmusage.core.model.SnapshotStatus
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
+import java.time.ZoneId
 
 class ConsumerUsageParserTest {
     private val now = Instant.parse("2026-09-09T00:00:00Z").toEpochMilli()
+    private val localZone = ZoneId.of("Asia/Seoul")
     private fun fixture(provider: String, name: String) = requireNotNull(javaClass.getResource("/provider/$provider/$name.txt")).readText()
-    private fun parsed(provider: String, name: String): ProviderResult = ConsumerUsageParser.parse(provider, "account", fixture(provider, name), now)
+    private fun parsed(provider: String, name: String): ProviderResult =
+        ConsumerUsageParser.parse(provider, "account", fixture(provider, name), now, localZone)
 
     @Test fun grokWeeklyBreakdownResetAndCredits() {
         val snapshot = (parsed("grok", "usage_normal") as ProviderResult.Success).snapshot
@@ -27,6 +31,7 @@ class ConsumerUsageParserTest {
         val snapshot = (parsed("chatgpt", "usage_partial") as ProviderResult.Success).snapshot
         assertNull(snapshot.buckets.first().usedPercent)
         assertNotNull(snapshot.buckets.first().resetAt)
+        assertEquals(SnapshotStatus.PARTIAL, snapshot.status)
     }
     @Test fun chatgptCodexDashboardReadsWindowsCreditsAndResets() {
         val snapshot = (parsed("chatgpt", "usage_dashboard") as ProviderResult.Success).snapshot
@@ -39,6 +44,24 @@ class ConsumerUsageParserTest {
         assertEquals(0.0, snapshot.buckets.first { it.id == "reserve" }.usedPercent!!, 0.0)
         assertEquals(3.0, snapshot.buckets.first { it.id == "resets" }.remaining!!, 0.0)
         assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
+    }
+    @Test fun chatgptKoreanCodexSurfaceReadsMultilineRemainingAndLocalResets() {
+        val snapshot = (parsed("chatgpt", "usage_codex_korean") as ProviderResult.Success).snapshot
+        val session = snapshot.buckets.first { it.id == "session" }
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(55.0, session.usedPercent!!, 0.0)
+        assertEquals(45.0, session.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-09T04:10:00Z").toEpochMilli(), session.resetAt)
+        assertEquals(34.0, weekly.usedPercent!!, 0.0)
+        assertEquals(66.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), weekly.resetAt)
+        assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
+        assertEquals(2, snapshot.buckets.size)
+    }
+    @Test fun chatgptCodexAccessibilityLabelsKeepEnglishRemainingSemantics() {
+        val snapshot = (parsed("chatgpt", "usage_codex_aria") as ProviderResult.Success).snapshot
+        assertEquals(55.0, snapshot.buckets.first { it.id == "session" }.usedPercent!!, 0.0)
+        assertEquals(34.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
     }
     @Test fun unknownChangedAndLoginNeverBecomeZeroSuccess() {
         for (provider in listOf("grok", "claude", "chatgpt")) {
