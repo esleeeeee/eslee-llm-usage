@@ -320,3 +320,49 @@ v0.1.6(하위 프레임 차단)과 v0.1.7(팝업 거부)이 빗나간 이유도 
 - **실기기에서 Grok 로그인 완료와 Usage 수집은 아직 확인되지 않았다.** 원인은 추적으로 특정했지만 4초 대기 후 이동이 실제로 세션을 이어받는지는 사용자가 확인해야 한다.
 - 세션 쿠키가 `oauth-complete` 시점에 정말 설정돼 있는지는 가정이다. 아니라면 Usage URL로 이동해도 로그인 페이지가 나올 것이고, 그 경우 추적에 `start · https://accounts.x.ai/sign-in`이 다시 찍힐 것이다.
 - 근본 대안(grok.com에서 팝업으로 로그인을 열게 하기)은 provider 페이지의 동작에 달려 있어 앱이 강제할 수 없다.
+
+---
+
+## v0.1.10 — Grok: 세션 쿠키 설정 페이지 차단이 원인 (2026-09-11)
+
+### 추적이 확정한 것
+
+v0.1.9에서 사용자가 재현한 추적:
+
+```
+16:58:36.210 finish     · accounts.x.ai/oauth-complete
+16:58:37.541 nav-blocked · https://auth.grok.com/set-cookie main=true BLOCK_HOST
+16:58:40.216 auth-complete-stalled · accounts.x.ai/oauth-complete
+16:58:40.765 start      · grok.com
+16:58:41.949 http       · grok.com/rest/suggestions/profile status=401
+16:58:42.483 http       · grok.com/rest/rate-limits status=401
+16:58:42.492 http       · grok.com/rest/products status=401
+```
+
+`oauth-complete`는 v0.1.9에서 추정한 "죽은 페이지"가 아니었다. 로드 직후 **메인 프레임을 `https://auth.grok.com/set-cookie`로 이동**시켜 세션 쿠키를 심으려 했다. 그런데 `auth.grok.com`이 grok 허용 호스트에 없어서 `blockIfDisallowed`가 BLOCK_HOST로 막았다.
+
+그 결과:
+
+1. 세션 쿠키가 설정되지 않았다.
+2. v0.1.9의 스톨 타이머(4초)가 발동해 grok.com으로 강제 이동했다.
+3. grok.com이 미인증 상태라 usage 엔드포인트(`/rest/rate-limits`, `/rest/products`)가 401.
+4. 사용자 화면: 나이 입력만 있고 "로그인 또는 회원가입" 요구.
+
+이번엔 `nav-blocked` 항목이 추적에 보였기 때문에 원인이 바로 드러났다. v0.1.9에서 이 로깅을 추가한 것이 이번 진단을 가능하게 했다. v0.1.6~v0.1.9 세 번의 추정(하위 프레임 차단, 팝업 거부, 죽은 종단 페이지)이 모두 빗나간 진짜 이유는 **provider의 세션 설정용 서브도메인을 막고 있었기 때문**이다.
+
+### 변경
+
+- `provider/ProviderRegistry.kt`: grok 허용 호스트에 `auth.grok.com` 추가. 이제 `oauth-complete` → `auth.grok.com/set-cookie` → grok.com(로그인됨) 흐름이 막히지 않는다. 자연 리다이렉트가 진행되면 v0.1.9의 스톨 타이머는 URL 변경으로 스스로 취소된다.
+- `core/web/ProviderWebActivity.kt`: `advanceAfterSignIn`에서 `verified = true`를 제거했다. 종단 페이지에 도달한 것만으로 로그인 성공을 단정하지 않는다. Usage로 이동한 뒤 실제 읽기 또는 signed-in 감지가 verified를 정한다. 401 페이지에서 verified가 참이 되던 문제를 없앤다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **48 tests / failures 0 / errors 0**. `lintDebug` errors 0. `assembleDebug` 통과.
+
+신규 회귀: 실제 차단됐던 URL `https://auth.grok.com/set-cookie`가 이제 grok 허용 호스트에서 통과하고, `auth.grok.com.evil.example` 같은 유사 호스트는 여전히 차단됨을 확인한다.
+
+### 미검증 / 다음
+
+- **실기기에서 Grok 로그인 완료와 usage 수집은 아직 확인되지 않았다.** 원인은 확정됐고 수정은 그 원인을 직접 겨냥했지만, `set-cookie` 통과 후 grok.com이 실제로 인증 상태가 되고 usage가 수집되는지는 사용자 확인이 필요하다.
+- 확인 방법: v0.1.10으로 Grok 로그인 후 추적에서 `nav-blocked · auth.grok.com`이 사라지고, `grok.com/rest/rate-limits`가 200으로 바뀌는지 본다. 여전히 401이면 다른 서브도메인이 추가로 필요할 수 있고, 그 호스트는 이제 `nav-blocked`로 보인다.
+- provider의 auth 서브도메인은 관측될 때마다 허용 목록에 추가하는 방식이다. 임의 호스트를 넓게 허용하지 않는다.

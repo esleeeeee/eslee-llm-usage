@@ -65,6 +65,10 @@ class PageAuthStateTest {
         assertTrue(WebNavigationPolicy.allows("https://accounts.x.ai/sign-in", grok.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", chatgpt.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", grok.allowedHosts))
+        // Trace showed sign-in redirecting the main frame to auth.grok.com/set-cookie
+        // to establish the session; blocking it left grok.com unauthenticated (401).
+        assertTrue(WebNavigationPolicy.allows("https://auth.grok.com/set-cookie", grok.allowedHosts))
+        assertFalse("a foreign host is still blocked", WebNavigationPolicy.allows("https://auth.grok.com.evil.example/set-cookie", grok.allowedHosts))
     }
 
     /**

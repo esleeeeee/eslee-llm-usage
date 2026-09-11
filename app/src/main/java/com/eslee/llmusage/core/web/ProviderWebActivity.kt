@@ -381,7 +381,9 @@ class ProviderWebActivity : ComponentActivity() {
     }
 
     private fun advanceAfterSignIn(web: WebView, provider: ProviderDefinition) {
-        verified = true
+        // Do not claim verified here: reaching the completion page is not proof the
+        // session took. Navigate to usage and let the read or the signed-in check
+        // set verified from what the provider actually returns.
         ProfileSessions.flush(web)
         attemptedUsageNavigation = false
         provider.usageUrl?.takeIf { WebNavigationPolicy.allows(it, provider.allowedHosts) }?.let(web::loadUrl)

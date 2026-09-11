@@ -51,7 +51,7 @@ class ProviderRegistry(debug: Boolean) {
         add(api("openai-api", "OpenAI API", "조직 Admin key로 오늘(UTC)의 토큰·요청 사용량 조회. ChatGPT 구독과 별도."))
         add(consumer("claude", "Claude", "claude.ai", "https://claude.ai/login", "https://claude.ai/settings/usage"))
         add(api("anthropic-api", "Anthropic API", "조직 Admin key로 오늘(UTC)의 토큰 사용량 조회. Claude 구독과 별도."))
-        add(consumer("grok", "Grok", "grok.com", "https://grok.com/sign-in", "https://grok.com/?_s=usage", setOf("accounts.x.ai", "www.grok.com", "x.ai", "www.x.ai")))
+        add(consumer("grok", "Grok", "grok.com", "https://grok.com/sign-in", "https://grok.com/?_s=usage", setOf("accounts.x.ai", "auth.grok.com", "www.grok.com", "x.ai", "www.x.ai")))
         add(api("xai-api", "xAI API", "Management key와 Team ID로 오늘(UTC)의 API 비용 조회. SuperGrok 구독과 별도."))
         for ((id, title) in listOf("gemini" to "Gemini", "perplexity" to "Perplexity")) add(
             ProviderDefinition(id, title, AuthMode.NONE, false, "공개 consumer Usage API 및 검증된 화면 파서가 없어 현재 지원하지 않습니다.",
