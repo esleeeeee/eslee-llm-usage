@@ -32,4 +32,4 @@ GitHub Actions에 API 35 에뮬레이터 실행을 추가했다. 이 테스트�
 - collection_review (Astra Worker): 읽기 전용 검토. 인증보다 파싱을 먼저 하는 문제, 여러 계정에서 재시도 누락, 중지된 Activity DOM 감시를 지적했다. 세 문제를 주 에이전트가 수정했다. 검토 에이전트는 코드 수정/빌드를 하지 않았다.
 - 이전 parser_fix의 한국어 파서 결과는 그대로 재사용했다. 이번에는 추가 파서 위임을 하지 않았다.
 
-최종 실행 결과와 배포 링크는 BUILD_REPORT.md 및 Notion 개발 기록에 남긴다.
+최종 [CI 34564611921](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/34564611921)에서 Android 통합 테스트 2건과 단위 테스트·lint·서명 APK 빌드가 통과했다. [v0.1.5 릴리즈](https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.1.5)는 `4ec15e8`의 debug/release APK를 제공한다. 실제 Google/Grok 로그인과 사용자 휴대폰 검증은 남아 있다.

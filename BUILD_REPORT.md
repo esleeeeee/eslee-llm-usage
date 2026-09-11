@@ -1,6 +1,6 @@
 # Build report
 
-Status: v0.1.5 automatic consumer collection implemented. Local unit/lint/build checks passed; Android WebView integration execution is now a required GitHub release gate.
+Status: v0.1.5 published. Unit/lint/signed APK builds and both Android WebView integration tests passed in [CI 34564611921](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/34564611921).
 
 ## v0.1.5 (2026-09-11)
 
@@ -11,7 +11,10 @@ Status: v0.1.5 automatic consumer collection implemented. Local unit/lint/build 
 - Local `testDebugUnitTest`: 29 tests, 0 failures/errors. `lintDebug`: 0 errors, 55 warnings.
 - Initial complete debug/release/androidTest build passed. Final production-source fixes passed unit/lint/androidTest compilation. CI rebuilds all signed artifacts from the committed source.
 - New Android integration tests cover read-button persistence without a navigation loop, delayed DOM, cookies retained across collector WebViews, repeated DB updates, actual Glance RemoteViews values, and last-success retention.
-- The integration tests use local fixture HTML and a test cookie, not real Google/Grok credentials. Their execution is required before publishing; final result is recorded in Notion/GitHub Actions.
+- Android API 35 integration: 2 tests passed, 0 failed. Tests verify the read button stores a new snapshot without changing the redirected route, and repeated collection retains profile cookies and renders 40% in widget RemoteViews.
+- Two test-fixture issues were corrected before this result: JUnit methods need a Unit return type; loadDataWithBaseURL needs an explicit history URL for the navigation assertion. No assertions were removed.
+- The integration tests use local fixture HTML and a test cookie, not real Google/Grok credentials. Actual provider authentication and the user's phone/launcher remain unverified.
+- [Release v0.1.5](https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.1.5): signed debug and release APKs; tag points to `4ec15e8ad0993834d342d656b75af419ded35dea`.
 - See [V015_AUTO_SYNC.md](docs/V015_AUTO_SYNC.md) for scope and agent responsibilities.
 
 Local evidence: `.handoff/v015-build.log`, `.handoff/v015-final-local.log` (Git-ignored).
