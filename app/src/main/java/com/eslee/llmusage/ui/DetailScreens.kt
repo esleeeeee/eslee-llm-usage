@@ -171,9 +171,18 @@ internal fun WidgetsScreen(accounts: List<AccountOverview>, settings: AppSetting
 @Composable
 internal fun DiagnosticsScreen(graph: AppGraph) {
     val context = LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var logs by remember { mutableStateOf(emptyList<SyncLog>()) }
     var trace by remember { mutableStateOf(WebTrace.snapshot()) }
     LaunchedEffect(Unit) { logs = graph.repository.logs() }
+    // The trace is written by a different activity, so re-read it on every return.
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) trace = WebTrace.snapshot()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val details = listOf(
         stringResource(R.string.android_version, Build.VERSION.RELEASE),
         stringResource(R.string.webview_version, WebViewCompat.getCurrentWebViewPackage(context)?.versionName ?: stringResource(R.string.unknown)),
@@ -187,13 +196,12 @@ internal fun DiagnosticsScreen(graph: AppGraph) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(details) { Text(it) }
         item { TextButton(onClick = {
-            val safeReport = details.joinToString("\n") +
-                "\n\n" + logs.joinToString("\n") { "${timeLabel(it.startedAt)} ${it.resultCode}" } +
-                "\n\n$traceTitle\n" + trace.joinToString("\n").ifBlank { emptyTrace }
+            // The trace leads: it is the part someone is asked to send back.
+            val safeReport = "$traceTitle (${trace.size})\n" + trace.joinToString("\n").ifBlank { emptyTrace } +
+                "\n\n" + details.joinToString("\n") +
+                "\n\n" + logs.take(20).joinToString("\n") { "${timeLabel(it.startedAt)} ${it.resultCode}" }
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, safeReport), exportTitle))
         }) { Text(exportTitle) } }
-        item { SectionTitle(R.string.sync_logs) }
-        items(logs) { Text("${timeLabel(it.startedAt)} · ${it.resultCode}", style = MaterialTheme.typography.bodySmall) }
         item { SectionTitle(R.string.web_trace) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -203,5 +211,7 @@ internal fun DiagnosticsScreen(graph: AppGraph) {
         }
         if (trace.isEmpty()) item { Text(emptyTrace, style = MaterialTheme.typography.bodySmall) }
         items(trace) { Text(it, style = MaterialTheme.typography.bodySmall) }
+        item { SectionTitle(R.string.sync_logs) }
+        items(logs) { Text("${timeLabel(it.startedAt)} · ${it.resultCode}", style = MaterialTheme.typography.bodySmall) }
     }
 }

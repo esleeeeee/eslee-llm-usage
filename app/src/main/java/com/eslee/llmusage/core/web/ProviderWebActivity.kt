@@ -105,9 +105,22 @@ class ProviderWebActivity : ComponentActivity() {
                 setPadding(0, 12, 0, 4)
                 isClickable = true
             }
-            fun setExpanded(expanded: Boolean) {
-                details.visibility = if (expanded) android.view.View.VISIBLE else android.view.View.GONE
+            fun setExpanded(expanded: Boolean, animate: Boolean = true) {
                 handle.setText(if (expanded) R.string.web_toolbar_collapse else R.string.web_toolbar_expand)
+                val target = if (expanded) android.view.View.VISIBLE else android.view.View.GONE
+                if (details.visibility == target) return
+                if (animate) {
+                    // Slide and fade the controls instead of snapping the web page
+                    // to a new height under the user's finger.
+                    android.transition.TransitionManager.beginDelayedTransition(
+                        root,
+                        android.transition.AutoTransition().apply {
+                            duration = 220
+                            interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+                        },
+                    )
+                }
+                details.visibility = target
             }
             handle.setOnTouchListener(object : android.view.View.OnTouchListener {
                 private val slop = android.view.ViewConfiguration.get(this@ProviderWebActivity).scaledTouchSlop
@@ -118,7 +131,8 @@ class ProviderWebActivity : ComponentActivity() {
                         android.view.MotionEvent.ACTION_DOWN -> { startY = event.rawY; dragged = false }
                         android.view.MotionEvent.ACTION_MOVE -> {
                             val delta = event.rawY - startY
-                            if (!dragged && kotlin.math.abs(delta) > slop) { dragged = true; setExpanded(delta > 0) }
+                            // Pull the panel down out of the way; push it back up to reach it.
+                            if (!dragged && kotlin.math.abs(delta) > slop) { dragged = true; setExpanded(delta < 0) }
                         }
                         android.view.MotionEvent.ACTION_UP -> {
                             if (!dragged) setExpanded(details.visibility != android.view.View.VISIBLE)
@@ -283,7 +297,7 @@ class ProviderWebActivity : ComponentActivity() {
             updateAuthAction()
             details.addView(authAction)
             toolbar.addView(handle)
-            setExpanded(true)
+            setExpanded(true, animate = false)
             webHost.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             root.addView(webHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
