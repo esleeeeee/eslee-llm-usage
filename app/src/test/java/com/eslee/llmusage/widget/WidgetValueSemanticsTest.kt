@@ -64,9 +64,17 @@ class WidgetValueSemanticsTest {
         assertEquals("3.00 REQUESTS 남음", text(resets, remaining = true))
     }
 
-    @Test fun progressFractionMatchesTheDisplayedNumber() {
+    @Test fun gaugeAlwaysShowsCapacityLeftLikeABattery() {
+        // Full when unused, empty when spent, regardless of whether the text is used or remaining.
         assertEquals(0.76f, WidgetStateMapper.display(session, true, words, Locale.KOREAN).percent!!, 0.0001f)
-        assertEquals(0.24f, WidgetStateMapper.display(session, false, words, Locale.KOREAN).percent!!, 0.0001f)
+        assertEquals(0.76f, WidgetStateMapper.display(session, false, words, Locale.KOREAN).percent!!, 0.0001f)
+        // Grok reported 0% used, which is a full battery.
+        val grokFull = UsageBucket("weekly", "주간", unit = UsageUnit.PERCENT, usedPercent = 0.0)
+        assertEquals(1.0f, WidgetStateMapper.display(grokFull, false, words, Locale.KOREAN).percent!!, 0.0001f)
+        assertEquals(1.0f, WidgetStateMapper.display(grokFull, true, words, Locale.KOREAN).percent!!, 0.0001f)
+        // Nearly spent is a nearly empty gauge even when the text shows "used".
+        val almostGone = session.copy(remainingPercent = 5.0)
+        assertEquals(0.05f, WidgetStateMapper.display(almostGone, false, words, Locale.KOREAN).percent!!, 0.0001f)
     }
 
     /**

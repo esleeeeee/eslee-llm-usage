@@ -366,3 +366,60 @@ v0.1.9에서 사용자가 재현한 추적:
 - **실기기에서 Grok 로그인 완료와 usage 수집은 아직 확인되지 않았다.** 원인은 확정됐고 수정은 그 원인을 직접 겨냥했지만, `set-cookie` 통과 후 grok.com이 실제로 인증 상태가 되고 usage가 수집되는지는 사용자 확인이 필요하다.
 - 확인 방법: v0.1.10으로 Grok 로그인 후 추적에서 `nav-blocked · auth.grok.com`이 사라지고, `grok.com/rest/rate-limits`가 200으로 바뀌는지 본다. 여전히 401이면 다른 서브도메인이 추가로 필요할 수 있고, 그 호스트는 이제 `nav-blocked`로 보인다.
 - provider의 auth 서브도메인은 관측될 때마다 허용 목록에 추가하는 방식이다. 임의 호스트를 넓게 허용하지 않는다.
+
+---
+
+## v0.1.11 — Grok Usage 파싱 + 배터리식 게이지 (2026-09-11)
+
+### 상황
+
+v0.1.10으로 **Grok 로그인이 성공했다**(`auth.grok.com` 허용이 통했다). 그러나 Usage 화면의 값을 읽지 못했다. 사용자가 실제 페이지 텍스트를 보냈다:
+
+```
+매주 SuperGrok 한도
+0%
+중고
+2026년 9월 18일 오후 4:39 초기화
+...
+추가 사용 크레딧
+US$0.00
+```
+
+### 원인
+
+파서가 이 페이지의 어느 것과도 매칭되지 않았다.
+
+1. **라벨.** grok weekly 패턴은 `weekly usage|주간 사용량`뿐이었다. 실제 라벨은 **"매주 SuperGrok 한도"**. 매칭 실패 → 버킷이 생성되지 않음.
+2. **used 마커.** "0%" 옆의 **"중고"** 는 Grok이 "Used"를 기계번역한 것이다. `usedMarker`에 없어 0%가 의미 불명으로 처리됐다.
+3. **크레딧.** "추가 사용 크레딧" 라벨과 "US$" 접두어를 크레딧 정규식이 인식하지 못했다.
+
+### 변경 (`ConsumerUsageParser`)
+
+- grok weekly 라벨에 `매주.*한도`, `주간.*한도`, `weekly (supergrok) usage|limit` 추가.
+- `usedMarker`에 `중고` 추가.
+- 크레딧 정규식에 `추가 사용 크레딧|추가 크레딧` 라벨과 `US$|₩|€|£` 통화 접두어 추가.
+
+기존 grok fixture(`Weekly usage`, `$15.00`)는 새 패턴에도 매칭되어 회귀 없음.
+
+### 배터리식 게이지
+
+사용자 지시: **게이지는 항상 남은 용량을 채운다. 안 쓰면 꽉 참, 다 쓰면 빔. 휴대폰 배터리처럼.** 숫자 텍스트가 '사용'이든 '남음'이든 무관하다.
+
+Grok의 "0% 사용"은 배터리로 치면 100% 남음 = 꽉 참인데, 기존에는 위젯을 '사용' 모드로 두면 막대가 사용률(0%)을 따라 **빈 상태**로 보였다.
+
+- `WidgetStateMapper.display`: 막대 채움 비율을 텍스트 모드와 분리해 **항상 `remainingPercent`** 로 계산한다. 텍스트는 사용/남음 선택을 그대로 따른다.
+- `ui/UsageComponents.BucketContent`: 앱 화면의 `LinearProgressIndicator`도 동일하게 남은 용량으로 채운다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **49 tests / failures 0 / errors 0**. `lintDebug` errors 0. `assembleDebug` 통과.
+
+신규 회귀:
+- `grokKoreanWeeklyLimitAndCreditsFromLivePage`: 실제 페이지 fixture로 weekly used=0/remaining=100, reset=2026-09-18 16:39 KST, credit=US$0.00, primary=weekly 확인.
+- `gaugeAlwaysShowsCapacityLeftLikeABattery`: 사용/남음 모드 모두에서 게이지=남은 용량. 0% 사용 → 꽉 참(1.0), 95% 사용 → 거의 빔(0.05).
+
+### 미검증
+
+- 실기기에서 v0.1.11로 Grok Usage가 위젯·앱에 실제로 뜨는지는 사용자 확인 필요.
+- Grok 계정에 주간 한도 외 제품별 사용량(Chat/Imagine 등)이 있는 화면은 이번 fixture에 없다. 그런 화면이 나오면 라벨 보강이 더 필요할 수 있다.
+- "재설정 가능 / 1일 후 만료"(banked reset)는 한국어 파싱 대상이 아니어서 아직 읽지 않는다. 이번 요구 범위 밖.

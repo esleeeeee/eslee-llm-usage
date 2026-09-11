@@ -63,7 +63,8 @@ internal fun BucketContent(bucket: UsageBucket, remaining: Boolean, detailed: Bo
             Text(if (percent == null && raw == null) stringResource(R.string.unknown) else stringResource(if (remaining) R.string.remaining else R.string.used),
                 style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 5.dp))
         }
-        if (percent != null) LinearProgressIndicator(progress = { (percent / 100).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        // Battery-style gauge: always the capacity left, full when unused, whichever number the text shows.
+        normalized.remainingPercent?.let { left -> LinearProgressIndicator(progress = { (left / 100).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth()) }
         bucket.resetAt?.let { Text(stringResource(R.string.reset_at, timeLabel(it)), style = MaterialTheme.typography.bodySmall) }
         if (detailed) {
             if (normalized.used != null && normalized.limit != null) Text("${number.format(normalized.used)} / ${number.format(normalized.limit)} ${bucket.unit.name}", style = MaterialTheme.typography.bodySmall)

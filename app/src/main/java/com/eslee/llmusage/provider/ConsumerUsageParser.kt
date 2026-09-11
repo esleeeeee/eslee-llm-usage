@@ -14,7 +14,7 @@ object ConsumerUsageParser {
     private data class Label(val id: String, val title: String, val pattern: Regex)
     private fun label(id: String, title: String, pattern: String) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE))
     private val labels = mapOf(
-        "grok" to listOf(label("weekly", "Weekly usage", "weekly usage|주간 사용량"),
+        "grok" to listOf(label("weekly", "Weekly usage", "weekly(?:\\s+supergrok)?\\s+(?:usage|limit)|주간 사용량|매주.*한도|주간.*한도"),
             label("chat", "Chat", "^chat$"), label("imagine", "Imagine", "^imagine$"),
             label("voice", "Voice", "^voice$"), label("build", "Build", "^build$"), label("api", "API", "^api$")),
         "claude" to listOf(label("session", "Current session", "current session|5[- ]hour(?: session)?|현재 세션|5시간"),
@@ -30,7 +30,8 @@ object ConsumerUsageParser {
     )
     private val percentage = Regex("(?<![\\d.])(\\d{1,3}(?:\\.\\d+)?)\\s*%")
     private val ratio = Regex("(?<![\\d.])(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*(?:/|of|중)\\s*(\\d+(?:,\\d{3})*(?:\\.\\d+)?)", RegexOption.IGNORE_CASE)
-    private val usedMarker = Regex("\\bused\\b|\\butili[sz]ed\\b|\\bconsumed\\b|사용됨|사용한", RegexOption.IGNORE_CASE)
+    // "중고" is Grok's Korean machine translation of "used" on the usage page.
+    private val usedMarker = Regex("\\bused\\b|\\butili[sz]ed\\b|\\bconsumed\\b|사용됨|사용한|중고", RegexOption.IGNORE_CASE)
     private val remainingMarker = Regex("\\bremaining\\b|\\bleft\\b|잔여|남음|남아|남은", RegexOption.IGNORE_CASE)
     private val resetLabel = Regex("reset|리셋|초기화|재설정", RegexOption.IGNORE_CASE)
     private val koreanResetTime = Regex(
@@ -76,7 +77,7 @@ object ConsumerUsageParser {
                 if (login) "서비스에 직접 로그인한 뒤 사용량 화면을 여세요." else "알려진 사용량 숫자나 명시적인 리셋 시각을 찾지 못했습니다. 이전 결과를 유지합니다.")
         }
         val creditLine = Regex(
-            "(?:^|\\n)\\s*(?:Extra Usage Credits|Credits|남은 크레딧)[ \\t:：]*(?:\\r?\\n[ \\t]*)?\\$?([0-9]+(?:[.,][0-9]+)?)",
+            "(?:^|\\n)\\s*(?:Extra Usage Credits|Credits|남은 크레딧|추가 사용 크레딧|추가 크레딧)[ \\t:：]*(?:\\r?\\n[ \\t]*)?(?:US\\$|\\$|₩|€|£)?\\s*([0-9]+(?:[.,][0-9]+)?)",
             RegexOption.IGNORE_CASE,
         ).find(lines.joinToString("\n"))
         val credit = if (providerId in setOf("grok", "chatgpt")) {

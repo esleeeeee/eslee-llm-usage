@@ -93,4 +93,19 @@ class ConsumerUsageParserTest {
         assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), weekly.resetAt)
         assertEquals(2, snapshot.buckets.size)
     }
+
+    /**
+     * Real SuperGrok usage page (Korean). The label is "매주 SuperGrok 한도", not
+     * "주간 사용량", and Grok renders "used" as the machine translation "중고";
+     * both prevented any bucket from being read before.
+     */
+    @Test fun grokKoreanWeeklyLimitAndCreditsFromLivePage() {
+        val snapshot = (parsed("grok", "usage_weekly_korean") as ProviderResult.Success).snapshot
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(0.0, weekly.usedPercent!!, 0.0)
+        assertEquals(100.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-18T07:39:00Z").toEpochMilli(), weekly.resetAt)
+        assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
+        assertEquals("weekly", snapshot.primaryBucketId)
+    }
 }

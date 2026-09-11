@@ -62,7 +62,10 @@ import java.util.Locale
         val text = percent?.let { String.format(locale,"%.0f%% %s",it,word) }
             ?: raw?.let { String.format(locale,"%.2f %s %s",it,bucket.unit.name,word) }
             ?: words.unknown
-        return ValueDisplay(text, percent?.toFloat()?.div(100)?.coerceIn(0f,1f))
+        // The gauge is a battery: it always fills with the capacity left, full when
+        // unused and empty when spent, no matter whether the text shows used or left.
+        val fill = UsageNormalizer.remainingPercent(bucket)?.toFloat()?.div(100)?.coerceIn(0f,1f)
+        return ValueDisplay(text, fill)
     }
 
     fun reset(context: Context, resetAt: Long?): String {
