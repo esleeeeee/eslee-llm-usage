@@ -62,6 +62,9 @@ class WebUsageReader(
                 }
                 last
             } finally {
+                // Providers rotate session cookies on each load; an unflushed rotation
+                // would silently expire the account and force a fresh sign-in.
+                ProfileSessions.flush(web)
                 web.stopLoading()
                 web.destroy()
             }

@@ -81,3 +81,76 @@ v0.1.5 이전 기록은 Notion에서 내보낸 `artifacts/claude-handoff/notion/
 2. `WebUsageReader.CAPTURE_JS`는 progressbar의 aria-label/valuetext를 본문 뒤에 덧붙인다. 원래 카드와 떨어진 위치에 "라벨/값" 쌍이 생기므로 1번 경로로 들어가기 쉽다.
 3. chatgpt 라벨 사전에 `session` id가 두 번 있다(5-hour, Codex usage). 한국어 화면의 `Codex 및 Work 분석`, `Codex와 Work는 동일한 사용 한도를 공유합니다.`가 모두 session으로 매칭돼 유령 섹션을 만든다. 지금은 그 구간에 %가 없어 버려지지만, 상단 그래프에 %가 있으면 진짜 5시간 섹션과 evidence 경쟁을 한다.
 4. `PageAuthState`는 grok에서 **query에 usage가 있기만 하면** SIGNED_IN으로 판정한다. 화면이 실제로 뜨지 않아도 통과할 수 있다.
+
+---
+
+## v0.1.6 — 인증·세션 수정 (2026-09-11, 같은 릴리즈에 포함)
+
+### 보고된 증상
+
+1. 앱 안의 Google 로그인이 휴대폰에 저장된 계정을 쓰지 못하고 매번 초기화된 브라우저처럼 처음부터 인증해야 한다.
+2. Google 2단계 인증 중 **번호 맞추기 알림이 폰에 절대 오지 않는다.**
+3. 힘들게 로그인해도 Grok이 `Completing sign-in, verifying your device to keep your account secure`에서 **무한 로딩**에 걸린다.
+
+### 원인과 대응
+
+#### 3번 — Grok 무한 검증: 코드 결함이었다. 수정함
+
+`ProviderWebActivity.blockIfDisallowed`가 허용 목록에 없는 호스트로의 이동을 **프레임 종류와 무관하게 차단**했다. `mainFrame` 인자는 토스트를 띄울지만 결정했을 뿐이다.
+
+기기 검증과 captcha 챌린지는 provider 허용 목록으로 열거할 수 없는 호스트의 **하위 프레임(iframe)** 에서 돌아간다. 그 프레임이 차단되면 챌린지가 끝나지 않고 화면은 계속 로딩 상태로 남는다. 증상과 정확히 일치한다.
+
+같은 호스트의 script·XHR·이미지는 `shouldOverrideUrlLoading`을 아예 거치지 않아 이미 그대로 로드되고 있었다. 즉 프레임만 막는 것은 페이지가 접근할 수 있는 범위를 좁히지 못하면서 로그인만 망가뜨리고 있었다.
+
+`WebNavigationPolicy.blocks(url, allowedHosts, mainFrame)`로 규칙을 옮기고, 호스트 허용 목록은 **메인 프레임 이동에만** 적용한다. 사용자가 고른 provider 밖으로 끌려가지 않게 하는 보호는 그대로 유지된다. https가 아닌 scheme(`intent://`, `market://`, `http://`, `javascript:`)은 프레임과 무관하게 계속 차단한다.
+
+Grok 허용 호스트에 `x.ai`, `www.x.ai`를 추가했다.
+
+#### 1번 — 매번 재인증: 절반은 코드 결함이었다. 수정함
+
+두 가지가 섞여 있다.
+
+**(a) 세션이 디스크에 남지 않았다 — 수정함.** 코드 어디에도 `CookieManager.flush()`가 없었다. WebView는 쿠키를 메모리에 두고 자체 일정으로 기록하므로, 로그인 직후 WebView가 destroy되거나 프로세스가 죽으면 **방금 만든 세션이 사라진다.** 그러면 다음에 열 때 처음부터 다시 인증해야 한다.
+
+`ProfileSessions.flush(webView)`를 추가하고 세션이 막 바뀐 지점에서 호출한다: 팝업에서 로그인 확인 직후, 메인 화면에서 로그인 감지 직후, 사용량 저장 성공 직후, `onStop`, WebView 파기 직전, 그리고 백그라운드 수집기가 임시 WebView를 버리기 직전. 마지막 것은 provider가 매 요청마다 세션 쿠키를 회전시키기 때문에 중요하다. 회전된 쿠키를 기록하지 않으면 계정이 조용히 만료된다.
+
+**(b) 휴대폰에 저장된 Google 계정은 쓸 수 없다 — 구조적 제약이며 고칠 수 없다.** 계정 격리를 위해 쓰는 WebView MULTI_PROFILE은 독립된 쿠키 저장소다. Chrome의 세션이나 Android AccountManager의 계정에 접근할 방법이 없다. Chrome Custom Tabs는 Chrome 세션을 쓰지만 그 DOM을 앱이 읽을 수 없어 사용량 수집이 불가능하다. 이건 앱 코드로 해결되지 않는다.
+
+#### 2번 — 번호 맞추기 알림 미수신: 앱이 고칠 수 있는 문제가 아니다
+
+Google은 embedded WebView에서의 로그인을 정책으로 제한한다. 기기 프롬프트는 Google Play 서비스가 보내는데, Google이 신뢰하지 않는 흐름에는 그 challenge를 내주지 않거나 다른 방식으로 대체한다. 서버 쪽 판단이라 앱에서 바꿀 수 없다.
+
+사용자가 추측한 "같은 폰에서 보내고 받아서"는 원인이 아니다. 같은 기기에서의 번호 맞추기는 일반 브라우저에서는 정상 동작한다.
+
+UA를 위장해 embedded WebView 탐지를 피하는 방법은 채택하지 않았다. 사용자가 앞서 거부한 방식이고, 보안 정책 우회이며, Google은 UA 외의 신호도 보기 때문에 성공도 보장되지 않는다.
+
+**대신 앱이 할 수 있는 것을 했다.** `WebNavigationPolicy.isGoogleSignIn(url)`로 Google 로그인 페이지 진입을 감지해, 막다른 길에 들어서기 **전에** 상태줄에 경고한다: 저장된 계정을 쓸 수 없고 번호 확인 알림이 오지 않을 수 있으니 이메일 로그인을 쓰라는 안내다. 기존에는 Google이 차단 페이지를 띄운 **뒤에야** 알려줬다.
+
+실질적인 우회 경로는 Google을 아예 쓰지 않는 것이다. ChatGPT는 chatgpt.com에서 이메일+비밀번호 로그인, Grok은 X 계정 또는 이메일 로그인을 쓴다. Google로만 가입한 계정이라면 해당 서비스에서 비밀번호를 새로 설정한 뒤 이메일 로그인을 쓸 수 있다.
+
+### 변경
+
+| 파일 | 변경 |
+| --- | --- |
+| `core/web/WebNavigationPolicy.kt` | `blocks(url, hosts, mainFrame)`, `isGoogleSignIn(url)` 추가 |
+| `core/web/ProviderWebActivity.kt` | 차단을 메인 프레임 한정으로, Google 로그인 사전 경고, 세션 flush 5개 지점 |
+| `core/web/ProfileSessions.kt` | `flush(webView)` 추가 |
+| `core/web/WebUsageReader.kt` | 임시 WebView 파기 직전 flush |
+| `provider/ProviderRegistry.kt` | Grok 허용 호스트에 `x.ai`, `www.x.ai` |
+| `res/values*/widget_strings.xml` | `web_google_signin_warning` |
+
+### 검증
+
+로컬 `testDebugUnitTest` **42 tests / failures 0 / errors 0**. `lintDebug` errors 0. `assembleDebug`, `assembleDebugAndroidTest` 통과.
+
+신규 회귀 3건(`WebNavigationPolicyTest`):
+
+- 챌린지 호스트(cloudflare turnstile, arkoselabs, hcaptcha)가 **하위 프레임에서는 로드되고 메인 프레임은 여전히 차단**된다
+- https가 아닌 scheme은 두 프레임 모두에서 차단된다
+- Google 로그인 호스트가 인식되고, provider 로그인 페이지나 일반 google.com 검색은 오탐하지 않는다
+
+### 미검증
+
+- **세 가지 모두 실기기 검증이 필요하다.** 이 PC에 Android 기기가 연결되지 않아 실제 Grok 검증 통과, 실제 세션 지속, 실제 Google 화면 동작을 확인하지 못했다.
+- Grok 무한 로딩의 원인을 코드에서 특정했지만, 실제 챌린지가 정말 하위 프레임 차단 때문이었는지는 사용자가 새 APK로 확인해야 확정된다. 다른 원인이 겹쳐 있을 수 있다.
+- Google 번호 맞추기는 이번 변경으로 **해결되지 않는다.** 경고를 앞당겼을 뿐이다.

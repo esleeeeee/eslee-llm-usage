@@ -31,6 +31,18 @@ object ProfileSessions {
         WebViewCompat.setProfile(webView, profileName)
     }
 
+    /**
+     * WebView keeps cookies in memory and writes them out on its own schedule, so a
+     * sign-in that is followed by the WebView being destroyed can be lost and the
+     * account asked to authenticate from scratch. Flushing at the points where a
+     * session has just changed makes the profile survive the process.
+     */
+    @UiThread
+    fun flush(webView: WebView) {
+        if (!supported()) return
+        runCatching { WebViewCompat.getProfile(webView).cookieManager.flush() }
+    }
+
     @UiThread
     fun delete(profileName: String): Boolean {
         requireManaged(profileName)

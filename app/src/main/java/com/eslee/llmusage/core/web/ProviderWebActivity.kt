@@ -113,6 +113,7 @@ class ProviderWebActivity : ComponentActivity() {
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     autoReadToken++
                     host.text = Uri.parse(url).host.orEmpty()
+                    if (WebNavigationPolicy.isGoogleSignIn(url)) host.setText(R.string.web_google_signin_warning)
                     if (WebNavigationPolicy.inspect(url, provider.allowedHosts) != NavigationDecision.ALLOW) view.stopLoading()
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -133,6 +134,7 @@ class ProviderWebActivity : ComponentActivity() {
                             AuthPageKind.DEVICE_VERIFICATION -> host.setText(R.string.web_device_verification)
                             else -> if (state == PageAuthState.SIGNED_IN && WebNavigationPolicy.allows(url, provider.allowedHosts)) {
                                 verified = true
+                                ProfileSessions.flush(view)
                                 web.webChromeClient?.onCloseWindow(view)
                                 provider.usageUrl?.let(web::loadUrl)
                             }
@@ -224,16 +226,16 @@ class ProviderWebActivity : ComponentActivity() {
 
     private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {
         val decision = WebNavigationPolicy.inspect(url, hosts)
-        Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision")
-        if (decision == NavigationDecision.ALLOW) return false
-        if (mainFrame) {
+        Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision main=$mainFrame")
+        val blocked = WebNavigationPolicy.blocks(url, hosts, mainFrame)
+        if (blocked && mainFrame) {
             Toast.makeText(
                 this,
                 if (decision == NavigationDecision.BLOCK_SCHEME) R.string.web_use_email_login else R.string.web_blocked,
                 Toast.LENGTH_LONG,
             ).show()
         }
-        return true
+        return blocked
     }
 
     private fun confirmLogin(web: WebView, provider: ProviderDefinition) {
@@ -300,7 +302,7 @@ class ProviderWebActivity : ComponentActivity() {
                 if (kind == AuthPageKind.GOOGLE_WEBVIEW_BLOCK || kind == AuthPageKind.DEVICE_VERIFICATION) {
                     status.setText(if (kind == AuthPageKind.GOOGLE_WEBVIEW_BLOCK) R.string.web_google_webview_block else R.string.web_device_verification)
                 } else if (popups.isEmpty() && UsageSurface.isProviderPage(url, provider.usageUrl)) {
-                    if (state == PageAuthState.SIGNED_IN) verified = true
+                    if (state == PageAuthState.SIGNED_IN && !verified) { verified = true; ProfileSessions.flush(web) }
                     if (text != previous && text.isNotBlank()) {
                         previous = text
                         readUsage(web, accountId, graph, provider, toast = false) { saved ->
@@ -339,6 +341,7 @@ class ProviderWebActivity : ComponentActivity() {
                     saved = result is ProviderResult.Success
                     if (saved) {
                         verified = true
+                        ProfileSessions.flush(web)
                         statusLine?.text = getString(R.string.web_saved_at, java.text.DateFormat.getTimeInstance().format(java.util.Date()))
                     } else if (toast) statusLine?.setText(R.string.web_read_failed)
                 } else if (toast) statusLine?.setText(R.string.web_login_hint)
@@ -368,6 +371,7 @@ class ProviderWebActivity : ComponentActivity() {
         WebUsageReader.configure(web)
     }
     private fun destroyBrowser() {
+        browser?.let(ProfileSessions::flush)
         monitorToken++
         autoReadToken++
         popups.toList().forEach {
@@ -396,6 +400,7 @@ class ProviderWebActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        browser?.let(ProfileSessions::flush)
         monitorToken++
         autoReadToken++
         super.onStop()

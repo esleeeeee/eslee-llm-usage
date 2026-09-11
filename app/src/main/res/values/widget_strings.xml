@@ -39,6 +39,7 @@
     <string name="web_cleanup_failed">Session cleanup needs retry. Remove this account from Accounts.</string>
     <string name="web_login_check">Check sign-in</string>
     <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>
+    <string name="web_google_signin_warning">Google restricts sign-in inside embedded browsers. Accounts saved on your phone are not available here, and the number-matching prompt may never arrive. Use email sign-in on this page instead.</string>
     <string name="web_google_webview_block">A sign-in error was detected. Google restricts embedded browser sign-in. Try another sign-in method offered by the service.</string>
     <string name="web_device_verification">The service is verifying your device. If it stays here, check your sign-in. Previously saved usage is retained.</string>
     <string name="web_usage_check">Read usage</string>

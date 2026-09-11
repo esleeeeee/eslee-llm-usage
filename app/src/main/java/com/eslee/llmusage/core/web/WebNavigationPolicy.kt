@@ -17,6 +17,28 @@ object WebNavigationPolicy {
 
     fun withOAuth(hosts: Set<String>): Set<String> = hosts + oauthHosts
 
+    /** Google restricts sign-in inside embedded browsers; the app warns instead of disguising itself. */
+    fun isGoogleSignIn(url: String): Boolean = runCatching {
+        URI(url).host.orEmpty().lowercase().removePrefix("www.").let { host ->
+            host.startsWith("accounts.google.") || host == "accounts.youtube.com"
+        }
+    }.getOrDefault(false)
+
+    /**
+     * Device verification and captcha challenges load in subframes whose hosts no
+     * per-provider allowlist can enumerate. Scripts, XHR and images from those same
+     * hosts are already fetched without consulting this policy, so refusing only
+     * their frames stopped sign-in from completing without narrowing what the page
+     * could reach. The allowlist therefore governs main-frame navigation, which is
+     * what keeps the user on the provider they chose.
+     */
+    fun blocks(url: String, allowedHosts: Set<String>, mainFrame: Boolean): Boolean =
+        when (inspect(url, allowedHosts)) {
+            NavigationDecision.ALLOW -> false
+            NavigationDecision.BLOCK_SCHEME -> true
+            NavigationDecision.BLOCK_HOST -> mainFrame
+        }
+
     fun inspect(url: String, allowedHosts: Set<String>): NavigationDecision = runCatching {
         val uri = URI(url)
         val scheme = uri.scheme.orEmpty().lowercase()
