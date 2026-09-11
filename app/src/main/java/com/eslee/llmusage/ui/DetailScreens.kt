@@ -22,6 +22,7 @@ import com.eslee.llmusage.R
 import com.eslee.llmusage.app.AppGraph
 import com.eslee.llmusage.core.model.*
 import com.eslee.llmusage.core.web.ProfileSessions
+import com.eslee.llmusage.core.web.WebTrace
 import com.eslee.llmusage.settings.AppSettings
 import com.eslee.llmusage.usage.AccountOverview
 import com.eslee.llmusage.usage.SyncLog
@@ -171,6 +172,7 @@ internal fun WidgetsScreen(accounts: List<AccountOverview>, settings: AppSetting
 internal fun DiagnosticsScreen(graph: AppGraph) {
     val context = LocalContext.current
     var logs by remember { mutableStateOf(emptyList<SyncLog>()) }
+    var trace by remember { mutableStateOf(WebTrace.snapshot()) }
     LaunchedEffect(Unit) { logs = graph.repository.logs() }
     val details = listOf(
         stringResource(R.string.android_version, Build.VERSION.RELEASE),
@@ -180,13 +182,26 @@ internal fun DiagnosticsScreen(graph: AppGraph) {
         stringResource(R.string.connector_version, "1"),
     )
     val exportTitle = stringResource(R.string.export_diagnostics)
+    val traceTitle = stringResource(R.string.web_trace)
+    val emptyTrace = stringResource(R.string.web_trace_empty)
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(details) { Text(it) }
         item { TextButton(onClick = {
-            val safeReport = details.joinToString("\n") + "\n\n" + logs.joinToString("\n") { "${timeLabel(it.startedAt)} ${it.resultCode}" }
+            val safeReport = details.joinToString("\n") +
+                "\n\n" + logs.joinToString("\n") { "${timeLabel(it.startedAt)} ${it.resultCode}" } +
+                "\n\n$traceTitle\n" + trace.joinToString("\n").ifBlank { emptyTrace }
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, safeReport), exportTitle))
         }) { Text(exportTitle) } }
         item { SectionTitle(R.string.sync_logs) }
         items(logs) { Text("${timeLabel(it.startedAt)} · ${it.resultCode}", style = MaterialTheme.typography.bodySmall) }
+        item { SectionTitle(R.string.web_trace) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { trace = WebTrace.snapshot() }) { Text(stringResource(R.string.refresh)) }
+                TextButton(onClick = { WebTrace.clear(); trace = WebTrace.snapshot() }) { Text(stringResource(R.string.web_trace_clear)) }
+            }
+        }
+        if (trace.isEmpty()) item { Text(emptyTrace, style = MaterialTheme.typography.bodySmall) }
+        items(trace) { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }

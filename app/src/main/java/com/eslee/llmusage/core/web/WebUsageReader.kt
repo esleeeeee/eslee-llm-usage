@@ -104,7 +104,8 @@ class WebUsageReader(
                 safeBrowsingEnabled = true
                 setGeolocationEnabled(false)
                 setSupportMultipleWindows(true)
-                javaScriptCanOpenWindowsAutomatically = false
+                // OAuth and device verification open their window after a redirect.
+                javaScriptCanOpenWindowsAutomatically = true
                 mediaPlaybackRequiresUserGesture = true
             }
         }

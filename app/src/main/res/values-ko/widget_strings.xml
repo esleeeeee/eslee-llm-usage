@@ -54,6 +54,12 @@
     <string name="web_read_complete">사용량 확인을 완료했습니다. 계정 화면에서 결과를 확인하세요.</string>
     <string name="web_read_failed">사용량을 읽지 못했습니다. 페이지를 확인하고 다시 시도하세요.</string>
     <string name="web_close_auth_window">인증 창 닫기</string>
+    <string name="web_restart_login">로그인 다시 시작</string>
+    <string name="web_toolbar_collapse">▲ 위로 쓸어올리면 이 영역이 숨겨집니다</string>
+    <string name="web_toolbar_expand">▼ 아래로 쓸어내리면 버튼이 나옵니다</string>
+    <string name="web_trace">로그인 브라우저 추적</string>
+    <string name="web_trace_clear">추적 지우기</string>
+    <string name="web_trace_empty">아직 기록된 로그인 동작이 없습니다. 제공자 로그인을 열어 문제를 재현한 뒤 이 화면으로 돌아오세요.</string>
 <string name="web_reading">사용량을 읽고 저장하는 중…</string><string name="web_saved_at">사용량 저장 완료 · %1$s</string>
 <string name="consumer_sync_schedule">자동 수집: 백그라운드 15분 · 화면을 열어 둔 동안 5분. 절전 상태에서는 지연될 수 있습니다.</string>
 </resources>

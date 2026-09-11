@@ -54,6 +54,12 @@
     <string name="web_read_complete">Usage check completed. Return to the account to see the result.</string>
     <string name="web_read_failed">Usage could not be read. Check the page and try again.</string>
     <string name="web_close_auth_window">Close auth window</string>
+    <string name="web_restart_login">Restart sign-in</string>
+    <string name="web_toolbar_collapse">▲ Swipe up to hide these controls</string>
+    <string name="web_toolbar_expand">▼ Swipe down for controls</string>
+    <string name="web_trace">Sign-in browser trace</string>
+    <string name="web_trace_clear">Clear trace</string>
+    <string name="web_trace_empty">No sign-in activity recorded yet. Open a provider sign-in, reproduce the problem, then return here.</string>
 <string name="web_reading">Reading and saving usage…</string><string name="web_saved_at">Usage saved · %1$s</string>
 <string name="consumer_sync_schedule">Auto-sync: every 15 minutes in the background, every 5 minutes while open. Battery restrictions may delay updates.</string>
 </resources>

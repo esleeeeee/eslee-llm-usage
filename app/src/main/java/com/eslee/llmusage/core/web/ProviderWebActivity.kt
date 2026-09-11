@@ -11,6 +11,7 @@ import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -44,6 +45,7 @@ class ProviderWebActivity : ComponentActivity() {
     private var attemptedUsageNavigation = false
     private var statusLine: TextView? = null
     private var resumeMonitoring: (() -> Unit)? = null
+    private var updateAuthAction: () -> Unit = {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdgeContent()
@@ -95,10 +97,43 @@ class ProviderWebActivity : ComponentActivity() {
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
                 )
             }
-            toolbar.addView(heading)
+            // Everything except the status line collapses, so the provider's own
+            // sign-in form is not pushed off the screen on a phone.
+            val details = LinearLayout(this@ProviderWebActivity).apply { orientation = LinearLayout.VERTICAL }
+            val handle = TextView(this@ProviderWebActivity).apply {
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, 12, 0, 4)
+                isClickable = true
+            }
+            fun setExpanded(expanded: Boolean) {
+                details.visibility = if (expanded) android.view.View.VISIBLE else android.view.View.GONE
+                handle.setText(if (expanded) R.string.web_toolbar_collapse else R.string.web_toolbar_expand)
+            }
+            handle.setOnTouchListener(object : android.view.View.OnTouchListener {
+                private val slop = android.view.ViewConfiguration.get(this@ProviderWebActivity).scaledTouchSlop
+                private var startY = 0f
+                private var dragged = false
+                override fun onTouch(v: android.view.View, event: android.view.MotionEvent): Boolean {
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> { startY = event.rawY; dragged = false }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            val delta = event.rawY - startY
+                            if (!dragged && kotlin.math.abs(delta) > slop) { dragged = true; setExpanded(delta > 0) }
+                        }
+                        android.view.MotionEvent.ACTION_UP -> {
+                            if (!dragged) setExpanded(details.visibility != android.view.View.VISIBLE)
+                            v.performClick()
+                        }
+                        else -> return false
+                    }
+                    return true
+                }
+            })
+            details.addView(heading)
+            details.addView(TextView(this@ProviderWebActivity).apply { setText(R.string.web_email_login_hint) })
+            details.addView(actions)
             toolbar.addView(host)
-            toolbar.addView(TextView(this@ProviderWebActivity).apply { setText(R.string.web_email_login_hint) })
-            toolbar.addView(actions)
+            toolbar.addView(details)
 
             val webHost = FrameLayout(this@ProviderWebActivity).apply {
                 clipChildren = true
@@ -112,6 +147,7 @@ class ProviderWebActivity : ComponentActivity() {
             web.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     autoReadToken++
+                    WebTrace.url(if (view === web) "start" else "start(popup)", url)
                     host.text = Uri.parse(url).host.orEmpty()
                     if (WebNavigationPolicy.isGoogleSignIn(url)) host.setText(R.string.web_google_signin_warning)
                     if (WebNavigationPolicy.inspect(url, provider.allowedHosts) != NavigationDecision.ALLOW) view.stopLoading()
@@ -119,9 +155,16 @@ class ProviderWebActivity : ComponentActivity() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     return blockIfDisallowed(request.url.toString(), provider.allowedHosts, request.isForMainFrame)
                 }
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                    WebTrace.url("neterr", request.url.toString(), "code=${error.errorCode} main=${request.isForMainFrame}")
+                }
+                override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                    WebTrace.url("http", request.url.toString(), "status=${response.statusCode} main=${request.isForMainFrame}")
+                }
                 override fun onPageFinished(view: WebView, url: String) {
                     host.text = Uri.parse(url).host.orEmpty()
                     if (view === web) {
+                        WebTrace.url("finish", url)
                         monitorSession(web, accountId, graph, provider, host)
                         if (UsageSurface.isUsagePage(url, provider.usageUrl)) scheduleUsageRead(web, accountId, graph, provider)
                     } else view.evaluateJavascript(AUTH_STATE_JS) { encoded ->
@@ -129,7 +172,9 @@ class ProviderWebActivity : ComponentActivity() {
                         val payload = runCatching { JSONObject(JSONTokener(encoded).nextValue() as String) }.getOrNull()
                         val text = payload?.optString("text").orEmpty()
                         val state = PageAuthStateDetector.detect(url, text, payload?.optBoolean("hasPassword") == true, payload?.optBoolean("hasComposer") == true)
-                        when (UsageSurface.classify(url, text)) {
+                        val kind = UsageSurface.classify(url, text)
+                        WebTrace.url("finish(popup)", url, "kind=$kind state=$state")
+                        when (kind) {
                             AuthPageKind.GOOGLE_WEBVIEW_BLOCK -> host.setText(R.string.web_google_webview_block)
                             AuthPageKind.DEVICE_VERIFICATION -> host.setText(R.string.web_device_verification)
                             else -> if (state == PageAuthState.SIGNED_IN && WebNavigationPolicy.allows(url, provider.allowedHosts)) {
@@ -142,6 +187,7 @@ class ProviderWebActivity : ComponentActivity() {
                     }
                 }
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: android.net.http.SslError) {
+                    WebTrace.record("sslerr", "primary=${error.primaryError}")
                     handler.cancel()
                 }
             }
@@ -151,7 +197,10 @@ class ProviderWebActivity : ComponentActivity() {
                     callback.invoke(origin, false, false)
                 }
                 override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
-                    if (!isUserGesture) return false
+                    // Sign-in and device verification open their next window after a
+                    // redirect rather than under the tap, so refusing windows without a
+                    // gesture left those flows waiting on a window that never appeared.
+                    WebTrace.record("popup-open", "gesture=$isUserGesture dialog=$isDialog")
                     val popup = WebView(view.context)
                     // Keep the opener and the account's cookie profile throughout OAuth.
                     ProfileSessions.bind(popup, profile)
@@ -162,12 +211,26 @@ class ProviderWebActivity : ComponentActivity() {
                     webHost.addView(popup, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                     (resultMsg.obj as WebView.WebViewTransport).webView = popup
                     resultMsg.sendToTarget()
+                    updateAuthAction()
+                    return true
+                }
+                override fun onProgressChanged(view: WebView, newProgress: Int) {
+                    if (newProgress == 100 || newProgress % 25 == 0) {
+                        WebTrace.record(if (view === web) "progress" else "progress(popup)", "$newProgress%")
+                    }
+                }
+                override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                    if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                        WebTrace.record("console", message.message())
+                    }
                     return true
                 }
                 override fun onCloseWindow(window: WebView) {
                     if (popups.remove(window)) {
+                        WebTrace.record("popup-close")
                         (window.parent as? ViewGroup)?.removeView(window)
                         window.destroy()
+                        updateAuthAction()
                         monitorSession(web, accountId, graph, provider, host)
                     }
                 }
@@ -199,13 +262,28 @@ class ProviderWebActivity : ComponentActivity() {
                     }
                 }
             }
-            toolbar.addView(read)
-            toolbar.addView(Button(this@ProviderWebActivity).apply {
-                setText(R.string.web_close_auth_window)
-                setOnClickListener {
-                    popups.lastOrNull()?.let { popup -> web.webChromeClient?.onCloseWindow(popup) }
+            details.addView(read)
+            // The old button silently did nothing whenever the stall was in the main
+            // window rather than an OAuth popup, which is most of the time. Make it
+            // say which escape it offers and always offer one.
+            val authAction = Button(this@ProviderWebActivity)
+            updateAuthAction = {
+                authAction.setText(if (popups.isEmpty()) R.string.web_restart_login else R.string.web_close_auth_window)
+            }
+            authAction.setOnClickListener {
+                val popup = popups.lastOrNull()
+                if (popup != null) web.webChromeClient?.onCloseWindow(popup)
+                else {
+                    WebTrace.record("restart-login")
+                    attemptedUsageNavigation = false
+                    provider.loginUrl?.takeIf { WebNavigationPolicy.allows(it, provider.allowedHosts) }?.let(web::loadUrl)
+                        ?: web.reload()
                 }
-            })
+            }
+            updateAuthAction()
+            details.addView(authAction)
+            toolbar.addView(handle)
+            setExpanded(true)
             webHost.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             root.addView(webHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
