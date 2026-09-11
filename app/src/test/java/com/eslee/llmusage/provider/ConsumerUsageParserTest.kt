@@ -74,4 +74,23 @@ class ConsumerUsageParserTest {
         assertTrue(ConsumerUsageParser.parse("grok", "a", "Special offer\nSave 50% today\n123 messages", now) is ProviderResult.Failure)
         assertTrue(ConsumerUsageParser.parse("grok", "a", "Weekly usage\nUnknown\nChat\nUnknown\nUpgrade\nSave 50%", now) is ProviderResult.Failure)
     }
+
+    /**
+     * 76/24 sums to 100, so a bucket swap and a used/remaining inversion look
+     * identical there. Uneven quotas keep the two failures distinguishable.
+     */
+    @Test fun koreanCodexQuotasThatDoNotSumToOneHundredStayWithTheirOwnLimit() {
+        val snapshot = (parsed("chatgpt", "usage_codex_korean_uneven") as ProviderResult.Success).snapshot
+        val session = snapshot.buckets.first { it.id == "session" }
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals("5-hour usage", session.label)
+        assertEquals(76.0, session.remainingPercent!!, 0.0)
+        assertEquals(24.0, session.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-09T04:10:00Z").toEpochMilli(), session.resetAt)
+        assertEquals("Weekly usage", weekly.label)
+        assertEquals(31.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(69.0, weekly.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), weekly.resetAt)
+        assertEquals(2, snapshot.buckets.size)
+    }
 }

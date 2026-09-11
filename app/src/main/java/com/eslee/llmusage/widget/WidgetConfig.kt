@@ -14,7 +14,8 @@ import kotlinx.serialization.json.Json
     val appWidgetId: Int,
     val selections: List<WidgetSelection> = emptyList(),
     val style: WidgetStyle = WidgetStyle.AUTO,
-    val remaining: Boolean = false,
+    /** null follows the app-wide Used/Remaining setting; false/true pin this widget. */
+    val remaining: Boolean? = null,
     val showProvider: Boolean = true,
     val showAlias: Boolean = true,
     val showReset: Boolean = true,

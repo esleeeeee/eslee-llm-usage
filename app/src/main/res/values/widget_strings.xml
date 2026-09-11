@@ -11,6 +11,8 @@
     <string name="widget_auth">Sign in required</string>
     <string name="widget_error">Sync failed</string>
     <string name="widget_sync_needed">Sync required</string>
+    <string name="widget_value_meaning">Value shown</string>
+    <string name="widget_value_default">Follow app setting</string>
     <string name="widget_used">Used</string>
     <string name="widget_remaining">Remaining</string>
     <string name="widget_provider">Show provider</string>

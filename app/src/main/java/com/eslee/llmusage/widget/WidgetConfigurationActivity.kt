@@ -66,7 +66,8 @@ class WidgetConfigurationActivity : ComponentActivity() {
                             }
                             Text(stringResource(R.string.widget_style))
                             Choice(stringArrayResource(R.array.widget_styles).toList(),config.style.ordinal) { config=config.copy(style=WidgetStyle.entries[it]) }
-                            Choice(listOf(stringResource(R.string.widget_used),stringResource(R.string.widget_remaining)),if(config.remaining) 1 else 0) { config=config.copy(remaining=it==1) }
+                            Text(stringResource(R.string.widget_value_meaning))
+                            Choice(listOf(stringResource(R.string.widget_value_default),stringResource(R.string.widget_used),stringResource(R.string.widget_remaining)),when(config.remaining){null->0;false->1;else->2}) { index -> config=config.copy(remaining=when(index){0->null;1->false;else->true}) }
                             Toggle(R.string.widget_provider,config.showProvider) { config=config.copy(showProvider=it) }
                             Toggle(R.string.widget_alias,config.showAlias) { config=config.copy(showAlias=it) }
                             Toggle(R.string.widget_reset,config.showReset) { config=config.copy(showReset=it) }

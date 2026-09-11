@@ -11,6 +11,8 @@
     <string name="widget_auth">다시 로그인 필요</string>
     <string name="widget_error">동기화 실패</string>
     <string name="widget_sync_needed">동기화 필요</string>
+    <string name="widget_value_meaning">표시할 값</string>
+    <string name="widget_value_default">앱 설정 따름</string>
     <string name="widget_used">사용량</string>
     <string name="widget_remaining">남은 양</string>
     <string name="widget_provider">제공자 표시</string>

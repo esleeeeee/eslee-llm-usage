@@ -139,7 +139,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                         0, 1 -> AccountList(accounts, graph, settings, tab == 0, onAdd = { route = "add" }, onProviders = { route = "providers" },
                             onOpen = { selectedId = it; route = "detail" }, onRefresh = ::refresh,
                             onRefreshAll = { action { graph.repository.refreshAll() } })
-                        2 -> WidgetsScreen(accounts)
+                        2 -> WidgetsScreen(accounts, settings)
                         3 -> SettingsScreen(settings, accounts, onChange = { action { graph.settings.update(it) } },
                             onDiagnostics = { route = "diagnostics" }, onProviders = { route = "providers" }, onClear = { kind -> action {
                                 when (kind) { 0 -> graph.repository.clearCredentials(apiOnly = true); 1 -> graph.repository.clearCredentials(webOnly = true); else -> graph.repository.clearData() }

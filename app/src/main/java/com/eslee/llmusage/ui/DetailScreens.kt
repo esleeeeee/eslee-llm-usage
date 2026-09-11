@@ -28,6 +28,7 @@ import com.eslee.llmusage.usage.SyncLog
 import com.eslee.llmusage.widget.WidgetConfig
 import com.eslee.llmusage.widget.WidgetConfigStore
 import com.eslee.llmusage.widget.WidgetConfigurationActivity
+import com.eslee.llmusage.widget.WidgetStateMapper
 import kotlinx.coroutines.launch
 
 @Composable
@@ -131,7 +132,7 @@ internal fun ConfirmDelete(title: Int, body: Int, onDismiss: () -> Unit, onConfi
 }
 
 @Composable
-internal fun WidgetsScreen(accounts: List<AccountOverview>) {
+internal fun WidgetsScreen(accounts: List<AccountOverview>, settings: AppSettings) {
     val context = LocalContext.current
     var widgets by remember { mutableStateOf(emptyList<WidgetConfig>()) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -156,7 +157,7 @@ internal fun WidgetsScreen(accounts: List<AccountOverview>) {
                         val bucket = overview.snapshot?.let { snapshot ->
                             snapshot.buckets.find { it.id == selection.bucketSelector } ?: UsagePresentation.primary(snapshot, overview.account.primaryBucketId)
                         }
-                        if (bucket != null) BucketContent(bucket, widget.remaining) else Text(stringResource(R.string.no_snapshot))
+                        if (bucket != null) BucketContent(bucket, WidgetStateMapper.effectiveRemaining(widget, settings.remaining)) else Text(stringResource(R.string.no_snapshot))
                         Text(statusLabel(overview.account, overview.snapshot, 0), style = MaterialTheme.typography.labelSmall)
                     }
                 }

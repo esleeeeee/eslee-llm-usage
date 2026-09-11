@@ -57,4 +57,4 @@ APK 기본 경로는 `app/build/outputs/apk/`입니다. 릴리스 서명은 `REL
 
 자체 서버, 광고, 분석 SDK, 비밀번호 저장, 브라우저 쿠키 가져오기, 구독 한도 우회 기능은 없습니다. 사용자는 Provider 공식 웹 화면에서 직접 인증합니다. 아이콘은 자체 제작한 단순 막대 표시이며 Provider 로고를 배포하지 않습니다.
 
-[알려진 제한](KNOWN_LIMITATIONS.md) · [보안](SECURITY.md) · [검증 기록](BUILD_REPORT.md)
+[알려진 제한](KNOWN_LIMITATIONS.md) · [보안](SECURITY.md) · [검증 기록](BUILD_REPORT.md) · [개발 이력](docs/DEVELOPMENT_HISTORY.md)
