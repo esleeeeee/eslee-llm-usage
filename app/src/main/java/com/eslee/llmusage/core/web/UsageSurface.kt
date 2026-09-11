@@ -32,6 +32,21 @@ object UsageSurface {
         return path == expectedPath || path.startsWith(expectedPath.trimEnd('/') + "/")
     }
 
+    /**
+     * An OAuth flow ends on a page whose only job is to hand control back to the
+     * window that opened it: post a message to the opener and close itself. Reached
+     * in the main frame there is no opener to tell and no window to close, so the
+     * page has nothing left to do and sits on its "completing sign-in" text forever.
+     */
+    fun isAuthCompletionPage(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("https", true)) return false
+        val path = uri.path.orEmpty().lowercase().trimEnd('/')
+        return path.endsWith("/oauth-complete") || path.endsWith("/oauth/complete") ||
+            path.endsWith("/auth/complete") || path.endsWith("/oauth-callback") ||
+            path.endsWith("/oauth/callback") || path.endsWith("/auth/callback")
+    }
+
     fun classify(url: String, visibleText: String): AuthPageKind {
         val text = visibleText.lowercase()
         if (Regex("disallowed_useragent|this browser or app may not be secure|couldn't sign you in|could not sign you in")

@@ -46,6 +46,7 @@ class ProviderWebActivity : ComponentActivity() {
     private var statusLine: TextView? = null
     private var resumeMonitoring: (() -> Unit)? = null
     private var updateAuthAction: () -> Unit = {}
+    private var completionToken = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdgeContent()
@@ -181,6 +182,7 @@ class ProviderWebActivity : ComponentActivity() {
                         WebTrace.url("finish", url)
                         monitorSession(web, accountId, graph, provider, host)
                         if (UsageSurface.isUsagePage(url, provider.usageUrl)) scheduleUsageRead(web, accountId, graph, provider)
+                        else if (UsageSurface.isAuthCompletionPage(url)) completeSignIn(web, url, provider)
                     } else view.evaluateJavascript(AUTH_STATE_JS) { encoded ->
                         if (closing || view !in popups || view.url != url) return@evaluateJavascript
                         val payload = runCatching { JSONObject(JSONTokener(encoded).nextValue() as String) }.getOrNull()
@@ -234,7 +236,7 @@ class ProviderWebActivity : ComponentActivity() {
                     }
                 }
                 override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
-                    if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                    if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR && !consoleNoise.containsMatchIn(message.message())) {
                         WebTrace.record("console", message.message())
                     }
                     return true
@@ -246,6 +248,11 @@ class ProviderWebActivity : ComponentActivity() {
                         window.destroy()
                         updateAuthAction()
                         monitorSession(web, accountId, graph, provider, host)
+                    } else if (window === web) {
+                        // The completion page asked to close itself. In the main frame
+                        // that would leave a dead end, so treat it as the end of sign-in.
+                        WebTrace.url("close-main", web.url.orEmpty())
+                        advanceAfterSignIn(web, provider)
                     }
                 }
             }
@@ -320,6 +327,7 @@ class ProviderWebActivity : ComponentActivity() {
         val decision = WebNavigationPolicy.inspect(url, hosts)
         Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision main=$mainFrame")
         val blocked = WebNavigationPolicy.blocks(url, hosts, mainFrame)
+        if (blocked) WebTrace.url("nav-blocked", url, "main=$mainFrame $decision")
         if (blocked && mainFrame) {
             Toast.makeText(
                 this,
@@ -355,6 +363,28 @@ class ProviderWebActivity : ComponentActivity() {
                 provider.usageUrl?.takeIf { WebNavigationPolicy.allows(it, provider.allowedHosts) }?.let(web::loadUrl)
             }
         }
+    }
+
+    /**
+     * The completion page normally redirects on its own within a moment. Give it
+     * that moment; if it is still sitting there, its session cookies are already
+     * set, so going to the provider directly picks the signed-in session up.
+     */
+    private fun completeSignIn(web: WebView, url: String, provider: ProviderDefinition) {
+        ProfileSessions.flush(web)
+        val token = ++completionToken
+        web.postDelayed({
+            if (closing || token != completionToken || browser !== web || web.url != url) return@postDelayed
+            WebTrace.url("auth-complete-stalled", url)
+            advanceAfterSignIn(web, provider)
+        }, 4_000L)
+    }
+
+    private fun advanceAfterSignIn(web: WebView, provider: ProviderDefinition) {
+        verified = true
+        ProfileSessions.flush(web)
+        attemptedUsageNavigation = false
+        provider.usageUrl?.takeIf { WebNavigationPolicy.allows(it, provider.allowedHosts) }?.let(web::loadUrl)
     }
 
     private fun scheduleUsageRead(
@@ -500,6 +530,8 @@ class ProviderWebActivity : ComponentActivity() {
 
     private companion object {
         const val NAV_LOG = "LlmUsageWeb"
+        /** Analytics beacons and CSP reports fill the trace without saying anything about sign-in. */
+        val consoleNoise = Regex("Content Security Policy|adsct|pagead|/ccm/collect|/rmkt/|user-list|analytics[.]|appsflyer|onelink|gtag|googletagmanager|doubleclick", RegexOption.IGNORE_CASE)
         const val AUTH_STATE_JS =
             "(function(){var t=document.body?document.body.innerText.slice(0,8000):'';return JSON.stringify({url:location.href,text:t,hasPassword:!!document.querySelector('input[type=password]'),hasComposer:!!document.querySelector('textarea,[contenteditable=\"true\"]')});})()"
 

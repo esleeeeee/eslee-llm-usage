@@ -261,3 +261,62 @@ v0.1.7의 진단 화면은 추적을 **동기화 로그 아래**에 놓았다. �
 Grok은 아직 **원인 미상**이다. v0.1.6(iframe), v0.1.7(팝업 거부) 두 가설이 모두 빗나갔다. 이제 추적이 사용자에게 실제로 도달할 것이므로, 다음 라운드는 추측이 아니라 로그를 근거로 한다.
 
 받아야 할 것: Grok 로그인을 무한 로딩까지 재현한 직후의 추적. 볼 것은 마지막 `start`/`finish` 호스트, `neterr`/`http` 코드, `console` 에러, `popup-open`의 유무와 `gesture` 값, 진행률이 멎은 지점.
+
+---
+
+## v0.1.9 — Grok 무한 로딩: 추적으로 원인 특정 (2026-09-11)
+
+### 추적이 보여준 것
+
+v0.1.8에서 사용자가 Grok 로그인을 재현하고 추적을 보냈다. 자격증명 없이 호스트·경로·시각만 담긴 로그였고, 그것으로 충분했다.
+
+```
+16:36:39.573 restart-login
+16:36:41.286 start  · https://accounts.x.ai/sign-in
+16:36:44.829 start  · https://accounts.google.com/v3/signin/accountchooser
+16:36:45.235 neterr · https://accounts.x.ai/monitoring code=-1 main=false
+16:36:50.333 start  · https://accounts.x.ai/oauth-complete
+16:36:51.240 finish · https://accounts.x.ai/oauth-complete
+16:36:52.478 progress · 100%
+(이후 10초 이상 analytics 콘솔 노이즈만 있고 이동 없음)
+```
+
+확정된 사실:
+
+1. **Google OAuth는 이번 실행에서 통과했다.** accountchooser → `oauth-complete`로 돌아왔다. 이 경로에서는 Google이 막지 않았다.
+2. **멈춘 곳은 `https://accounts.x.ai/oauth-complete`다.** 로드가 끝난 뒤 다시는 이동하지 않는다. 화면의 "Completing sign-in, verifying your device…"가 이 페이지다.
+3. **팝업은 한 번도 열리지 않았다.** `popup-open` 항목이 없고 모든 `start`가 메인 프레임이다. v0.1.7의 팝업 허용은 이 경로에서 아예 쓰이지 않았다.
+4. HTTP 4xx/5xx 없음. JS 예외 없음. 하위 프레임 오류는 `accounts.x.ai/monitoring` 하나뿐이며 로그인과 무관하다.
+
+### 원인
+
+`oauth-complete`는 **팝업으로 열렸을 때를 전제로 만들어진 종단 페이지**다. 할 일은 두 가지뿐이다: `window.opener`에 완료를 알리고 `window.close()`로 자신을 닫는 것. 그러면 원래 창(grok.com)이 세션을 이어받는다.
+
+이 앱에서는 흐름 전체가 **메인 프레임**에서 돌았다. opener가 없으니 알릴 대상이 없고, 메인 WebView의 `window.close()`는 `onCloseWindow`가 팝업만 처리하므로 조용히 무시된다. 페이지는 할 일을 다 했는데 아무 일도 일어나지 않고, 사용자는 무한 로딩을 본다.
+
+v0.1.6(하위 프레임 차단)과 v0.1.7(팝업 거부)이 빗나간 이유도 여기 있다. 둘 다 "무언가가 막혔다"는 가정이었는데, 실제로는 **아무것도 막히지 않았고 페이지가 정상적으로 끝에 도달한 뒤 갈 곳이 없었다.**
+
+세션 쿠키는 이 시점에 이미 설정돼 있을 가능성이 높다. `oauth-complete`가 하는 일이 그것이기 때문이다.
+
+### 변경
+
+`core/web/UsageSurface.kt`에 `isAuthCompletionPage(url)`를 추가했다. `/oauth-complete`, `/oauth/callback`, `/auth/complete` 등 OAuth 종단 경로를 https에서만 인식한다.
+
+`core/web/ProviderWebActivity.kt`:
+
+- 메인 프레임이 종단 페이지에 도달하면 `completeSignIn`이 쿠키를 flush하고 **4초**를 기다린다. 페이지가 스스로 이동하면 아무것도 하지 않는다. 같은 URL에 그대로 있으면 `auth-complete-stalled`를 기록하고 provider의 Usage URL로 이동한다. 이미 설정된 세션 쿠키가 그 이동에 실린다.
+- `onCloseWindow`가 **메인 WebView**에 대해서도 동작한다. 종단 페이지가 `window.close()`를 부르면 `close-main`을 기록하고 같은 경로로 넘어간다. 이전에는 팝업이 아니면 무시했다.
+- `blockIfDisallowed`가 차단한 이동을 `nav-blocked`로 추적에 남긴다. v0.1.7·v0.1.8에서는 logcat에만 남아 추적에서 보이지 않았다. 이번 로그에 차단 항목이 없었던 것이 "막힌 게 아니다"라는 판단의 근거였는데, 그 판단은 이 사각지대 때문에 간접 추론이었다. 이제 직접 보인다.
+- 콘솔 오류 중 analytics·광고·CSP 보고는 추적에서 제외한다. 이번 로그의 3분의 2가 이런 노이즈였고, 300건 버퍼를 신호 대신 채우고 있었다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **48 tests / failures 0 / errors 0** (47 → 48). `lintDebug` errors 0. `assembleDebug` 통과.
+
+신규 회귀 1건: `oauthCompletionPagesAreRecognisedInTheMainFrame`. 실제 추적의 URL(`https://accounts.x.ai/oauth-complete`)을 포함해 종단 페이지를 인식하고, 로그인·Usage·Google accountchooser·http는 오탐하지 않는다.
+
+### 미검증
+
+- **실기기에서 Grok 로그인 완료와 Usage 수집은 아직 확인되지 않았다.** 원인은 추적으로 특정했지만 4초 대기 후 이동이 실제로 세션을 이어받는지는 사용자가 확인해야 한다.
+- 세션 쿠키가 `oauth-complete` 시점에 정말 설정돼 있는지는 가정이다. 아니라면 Usage URL로 이동해도 로그인 페이지가 나올 것이고, 그 경우 추적에 `start · https://accounts.x.ai/sign-in`이 다시 찍힐 것이다.
+- 근본 대안(grok.com에서 팝업으로 로그인을 열게 하기)은 provider 페이지의 동작에 달려 있어 앱이 강제할 수 없다.

@@ -2,6 +2,7 @@ package com.eslee.llmusage.core.web
 
 import com.eslee.llmusage.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,5 +65,28 @@ class PageAuthStateTest {
         assertTrue(WebNavigationPolicy.allows("https://accounts.x.ai/sign-in", grok.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", chatgpt.allowedHosts))
         assertTrue(WebNavigationPolicy.allows("https://accounts.google.com/o/oauth2/auth", grok.allowedHosts))
+    }
+
+    /**
+     * Trace from the phone: sign-in ran entirely in the main frame, reached
+     * https://accounts.x.ai/oauth-complete, and never navigated again. That page
+     * exists to notify and close a popup; in the main frame it has nothing to do.
+     */
+    @Test fun oauthCompletionPagesAreRecognisedInTheMainFrame() {
+        listOf(
+            "https://accounts.x.ai/oauth-complete",
+            "https://accounts.x.ai/oauth-complete/",
+            "https://accounts.x.ai/oauth-complete?state=abc",
+            "https://auth.openai.com/oauth/callback?code=x",
+            "https://example.com/auth/complete",
+        ).forEach { assertTrue(it, UsageSurface.isAuthCompletionPage(it)) }
+        listOf(
+            "https://accounts.x.ai/sign-in",
+            "https://grok.com/?_s=usage",
+            "https://chatgpt.com/codex/settings/usage",
+            "https://accounts.google.com/v3/signin/accountchooser",
+            "http://accounts.x.ai/oauth-complete",
+            "not a url",
+        ).forEach { assertFalse(it, UsageSurface.isAuthCompletionPage(it)) }
     }
 }
