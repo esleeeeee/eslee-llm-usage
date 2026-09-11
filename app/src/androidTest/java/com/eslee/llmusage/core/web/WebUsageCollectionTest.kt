@@ -66,7 +66,7 @@ class WebUsageCollectionTest {
                             val web = descendants(activity.window.decorView).filterIsInstance<WebView>().firstOrNull()
                             if (web != null) {
                                 web.stopLoading()
-                                web.loadDataWithBaseURL("https://chatgpt.com/codex/usage", "<html><body>5시간 사용 한도<br>45%<br>남음<br>주간 사용 한도<br>66%<br>남음</body></html>", "text/html", "UTF-8", null)
+                                web.loadDataWithBaseURL("https://chatgpt.com/codex/usage", "<html><body>5시간 사용 한도<br>45%<br>남음<br>주간 사용 한도<br>66%<br>남음</body></html>", "text/html", "UTF-8", "https://chatgpt.com/codex/usage")
                                 installed = true
                             }
                         }
@@ -99,7 +99,7 @@ class WebUsageCollectionTest {
             val load = {
                 web.loadDataWithBaseURL("https://chatgpt.com/codex/usage", """
                     <html><body>Loading<script>setTimeout(function(){document.body.innerHTML=document.cookie.indexOf('usage_fixture=ready')>=0?'$content':'Sign in';},1200);</script></body></html>
-                """.trimIndent(), "text/html", "UTF-8", null)
+                """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/codex/usage")
             }
             if (!seeded) {
                 seeded = true
