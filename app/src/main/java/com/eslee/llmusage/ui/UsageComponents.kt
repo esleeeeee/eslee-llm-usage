@@ -75,7 +75,7 @@ internal fun BucketContent(bucket: UsageBucket, remaining: Boolean, detailed: Bo
 }
 
 @Composable
-internal fun AccountCard(account: Account, snapshot: UsageSnapshot?, provider: String, remaining: Boolean, staleHours: Int, onOpen: () -> Unit, onRefresh: () -> Unit) {
+internal fun AccountCard(account: Account, snapshot: UsageSnapshot?, provider: String, remaining: Boolean, staleHours: Int, onOpen: () -> Unit, onRefresh: () -> Unit, onOpenWeb: (() -> Unit)? = null) {
     OutlinedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,7 +91,12 @@ internal fun AccountCard(account: Account, snapshot: UsageSnapshot?, provider: S
             if (primary != null) BucketContent(primary, remaining) else Text(stringResource(R.string.no_snapshot))
             Text(statusLabel(account, snapshot, staleHours), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text(stringResource(R.string.last_sync, account.lastSuccessAt?.let(::timeLabel) ?: stringResource(R.string.never)), style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = onRefresh, enabled = account.enabled) { Text(stringResource(R.string.refresh)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onRefresh, enabled = account.enabled) { Text(stringResource(R.string.refresh)) }
+                // Without this the signed-in browser is only reachable when a refresh
+                // fails with AUTH_REQUIRED, which never happens once a session sticks.
+                onOpenWeb?.let { TextButton(onClick = it) { Text(stringResource(R.string.open_web)) } }
+            }
         }
     }
 }

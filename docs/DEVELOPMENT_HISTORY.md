@@ -423,3 +423,54 @@ Grok의 "0% 사용"은 배터리로 치면 100% 남음 = 꽉 참인데, 기존�
 - 실기기에서 v0.1.11로 Grok Usage가 위젯·앱에 실제로 뜨는지는 사용자 확인 필요.
 - Grok 계정에 주간 한도 외 제품별 사용량(Chat/Imagine 등)이 있는 화면은 이번 fixture에 없다. 그런 화면이 나오면 라벨 보강이 더 필요할 수 있다.
 - "재설정 가능 / 1일 후 만료"(banked reset)는 한국어 파싱 대상이 아니어서 아직 읽지 않는다. 이번 요구 범위 밖.
+
+---
+
+## v0.1.12 — 앱에서 웹 화면으로 가는 길 복구 + release APK 단일화 (2026-09-21)
+
+### 보고된 증상
+
+> 앱에서 웹으로 갈 방법이 없다니까? 코덱스던 그록이던?
+
+Grok Usage를 다시 열 수 없어 수집을 재시도할 수 없었다. 로그아웃 후 재로그인 말고는 방법이 없는 상태였다.
+
+### 원인: 세션 유지를 고친 부작용
+
+`ProviderWebActivity`를 여는 곳이 세 군데뿐이었다.
+
+1. 계정 최초 추가 시 (`MainActivity` `newAccount=true`) — 1회성
+2. 새로고침이 **`AUTH_REQUIRED`로 실패했을 때만** (`MainActivity.refresh`)
+3. 위젯 탭 동작을 "제공자 열기"로 설정한 경우
+
+앱 화면에 "웹 열기" 버튼이 **아예 없었다.** v0.1.6에서 `CookieManager.flush()`로 세션 지속을 고친 뒤로 2번 조건이 성립하지 않게 되면서, 로그인이 살아 있는 정상 계정일수록 웹 화면에 **영구히 도달할 수 없게** 됐다. 수집이 실패해도(PARSE_FAILED) 웹을 열어주지 않으므로 사용자가 개입할 방법이 없었다.
+
+### 변경
+
+- `ui/UsageComponents.AccountCard`: `onOpenWeb` 콜백을 추가하고 새로고침 옆에 "웹에서 열기" 버튼을 둔다. WEB_PROFILE 계정에만 표시한다.
+- `ui/MainActivity.AccountList`: `onOpenWeb`를 받아 대시보드 카드에 연결한다. 호출부에서 `ProviderWebActivity`를 연다.
+- `ui/DetailScreens.DetailScreen`: 새로고침 옆에 같은 버튼을 둔다. 카드를 탭하면 상세로 오므로 두 경로 모두에서 접근 가능하다.
+- `res/values*/strings.xml`: `open_web` 추가.
+
+### 릴리즈 APK 단일화
+
+사용자 요청으로 다음 릴리즈부터 서명된 release APK 하나(`eslee-llm-usage-v<버전>.apk`)만 게시한다. debug APK를 빼는 이유는 세 가지다.
+
+1. `debuggable`이라 ADB가 붙으면 앱이 저장한 provider 세션 쿠키를 읽을 수 있다.
+2. `BuildConfig.DEBUG` 게이트 때문에 "Demo · 테스트 데이터" 가짜 provider가 보인다.
+3. 약 68 MB 대 5 MB로 13배 크다. 축소(R8) 미적용과 Compose `ui-tooling` 포함이 원인이다.
+
+둘 다 같은 `distribution` 키로 서명되고 applicationId가 같아 서로 덮어쓰기 설치가 되므로, 한쪽을 빼도 기존 설치본이 고립되지 않는다. debug 빌드는 계기 테스트(`connectedDebugAndroidTest`)에 필요해 CI에서 계속 빌드하며 업로드만 하지 않는다. 신규 릴리즈는 `--prerelease`로 생성한다. v0.1.11 이하 릴리즈의 debug 에셋은 그대로 둔다.
+
+기존 릴리즈 12개는 사용자 요청으로 모두 프리릴리즈로 전환했다. 전부 프리릴리즈가 되면 GitHub는 "Latest" 배지를 부여하지 않으므로 `releases/latest`가 비게 된다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **49 tests / failures 0 / errors 0**. `lintDebug` errors 0. `assembleDebug` 통과.
+
+UI 배치 변경이라 단위 테스트로 고정되지 않는다. 실기기 확인이 필요하다.
+
+### 미검증 / 다음
+
+- **Grok Usage 화면의 실제 주소를 아직 모른다.** `https://grok.com/?_s=usage`는 인계 시점의 추측이며 Usage 화면을 열지 않는다는 것이 이번에 드러났다. "사용량 페이지" 버튼이 홈으로만 가는 이유다.
+- `UsageSurface.canCollect`는 호스트만 확인하므로, 사용자가 Grok 자체 메뉴로 Usage에 도달한 뒤 "사용량 읽기"를 누르면 수집은 된다. 이 경로로 한 번 도달한 뒤 진단 추적을 받아 실제 경로를 확인하고 `usageUrl`을 교체해야 한다.
+- 추적에 `grok.com/` 만 남고 경로가 바뀌지 않으면 Usage가 주소 없는 모달이라는 뜻이며, URL 기반 자동 수집이 불가능해 다른 설계가 필요하다.

@@ -138,7 +138,8 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                     else -> when (tab) {
                         0, 1 -> AccountList(accounts, graph, settings, tab == 0, onAdd = { route = "add" }, onProviders = { route = "providers" },
                             onOpen = { selectedId = it; route = "detail" }, onRefresh = ::refresh,
-                            onRefreshAll = { action { graph.repository.refreshAll() } })
+                            onRefreshAll = { action { graph.repository.refreshAll() } },
+                            onOpenWeb = { account -> context.startActivity(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", account.id)) })
                         2 -> WidgetsScreen(accounts, settings)
                         3 -> SettingsScreen(settings, accounts, onChange = { action { graph.settings.update(it) } },
                             onDiagnostics = { route = "diagnostics" }, onProviders = { route = "providers" }, onClear = { kind -> action {
@@ -154,7 +155,8 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
 
 @Composable
 private fun AccountList(accounts: List<AccountOverview>, graph: AppGraph, settings: AppSettings, dashboard: Boolean,
-    onAdd: () -> Unit, onProviders: () -> Unit, onOpen: (String) -> Unit, onRefresh: (Account) -> Unit, onRefreshAll: () -> Unit) {
+    onAdd: () -> Unit, onProviders: () -> Unit, onOpen: (String) -> Unit, onRefresh: (Account) -> Unit, onRefreshAll: () -> Unit,
+    onOpenWeb: (Account) -> Unit) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (accounts.isEmpty()) item {
             Column(Modifier.padding(vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -171,7 +173,10 @@ private fun AccountList(accounts: List<AccountOverview>, graph: AppGraph, settin
             items(accounts, key = { it.account.id }) { overview ->
                 val provider = graph.registry.definition(overview.account.providerId)
                 if (dashboard) AccountCard(overview.account, overview.snapshot, provider?.displayName ?: overview.account.providerId,
-                    settings.remaining, settings.staleHours, { onOpen(overview.account.id) }, { onRefresh(overview.account) })
+                    settings.remaining, settings.staleHours, { onOpen(overview.account.id) }, { onRefresh(overview.account) },
+                    onOpenWeb = if (overview.account.authMode == AuthMode.WEB_PROFILE) {
+                        { onOpenWeb(overview.account) }
+                    } else null)
                 else OutlinedCard(onClick = { onOpen(overview.account.id) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(overview.account.alias, style = MaterialTheme.typography.titleMedium)

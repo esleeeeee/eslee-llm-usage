@@ -22,6 +22,7 @@ import com.eslee.llmusage.R
 import com.eslee.llmusage.app.AppGraph
 import com.eslee.llmusage.core.model.*
 import com.eslee.llmusage.core.web.ProfileSessions
+import com.eslee.llmusage.core.web.ProviderWebActivity
 import com.eslee.llmusage.core.web.WebTrace
 import com.eslee.llmusage.settings.AppSettings
 import com.eslee.llmusage.usage.AccountOverview
@@ -60,7 +61,17 @@ internal fun DetailScreen(overview: AccountOverview, graph: AppGraph, settings: 
             Text(listOfNotNull(graph.registry.definition(account.providerId)?.displayName, snapshot?.planName).joinToString(" · "))
             Text(statusLabel(account, snapshot, settings.staleHours), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
             Text(stringResource(R.string.last_sync, account.lastSuccessAt?.let(::timeLabel) ?: stringResource(R.string.never)), style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onRefresh, enabled = account.enabled) { Text(stringResource(R.string.refresh)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRefresh, enabled = account.enabled) { Text(stringResource(R.string.refresh)) }
+                // The signed-in browser used to be reachable only through a failed
+                // refresh, which stopped happening once sessions started persisting.
+                if (account.authMode == AuthMode.WEB_PROFILE) {
+                    val context = LocalContext.current
+                    OutlinedButton(onClick = {
+                        context.startActivity(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", account.id))
+                    }) { Text(stringResource(R.string.open_web)) }
+                }
+            }
         }
         if (snapshot == null) item { Text(stringResource(R.string.no_snapshot)) }
         items(snapshot?.buckets.orEmpty(), key = { it.id }) { bucket ->

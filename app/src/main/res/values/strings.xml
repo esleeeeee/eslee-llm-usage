@@ -10,6 +10,7 @@
     <string name="empty_description">Add your LLM accounts to see usage and reset times here and on your home screen.</string>
     <string name="provider_status">Provider support</string>
     <string name="refresh">Refresh</string>
+    <string name="open_web">Open web page</string>
     <string name="refresh_all">Refresh all</string>
     <string name="back">Back</string>
     <string name="unknown">Unknown</string>
