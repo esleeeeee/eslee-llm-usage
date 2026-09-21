@@ -108,4 +108,18 @@ class ConsumerUsageParserTest {
         assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
         assertEquals("weekly", snapshot.primaryBucketId)
     }
+
+    /** The exact page a user copied on 2026-09-21, after the weekly window rolled over. */
+    @Test fun grokKoreanWeeklyPageWithoutTheResetBlock() {
+        val result = parsed("grok", "usage_weekly_sep21")
+        assertTrue("parse returned $result", result is ProviderResult.Success)
+        val snapshot = (result as ProviderResult.Success).snapshot
+        val weekly = snapshot.buckets.firstOrNull { it.id == "weekly" }
+        assertNotNull("no weekly bucket in ${snapshot.buckets.map { it.id }}", weekly)
+        assertEquals("usedPercent", 0.0, weekly!!.usedPercent ?: -1.0, 0.0)
+        assertEquals("remainingPercent", 100.0, weekly.remainingPercent ?: -1.0, 0.0)
+        assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
+        assertEquals(0.0, snapshot.extraCredits?.amount ?: -1.0, 0.0)
+        assertEquals(SnapshotStatus.SUCCESS, snapshot.status)
+    }
 }
