@@ -518,3 +518,58 @@ v0.1.13에서 "사용량 읽기"를 한 뒤 추적의 `read` 줄을 보면 원�
 - `read · success but no buckets` → 라벨 매칭 실패.
 - `read · failed PARSE_FAILED` → 저장 자체가 안 된 것이며 토스트 표시와 모순되므로 별도 조사.
 - `read · weekly=0%used+reset` 인데도 카드가 비어 있으면 → 저장은 정상이고 표시 경로 문제다.
+
+---
+
+## v0.1.14 — 섹션에 퍼센트가 여러 개면 값을 전부 버리던 문제 (2026-09-21)
+
+### 결정적 증거
+
+v0.1.13에서 추가한 읽기 추적이 원인을 한 줄로 확정했다.
+
+```
+17:27:04.276 read · failed PARSE_FAILED
+17:27:06.039 read · weekly=novalue+reset
+17:27:07.956 read · weekly=novalue+reset
+```
+
+파서가 weekly 버킷을 만들긴 했으나 **수치가 하나도 없었다**(`novalue`). 초기화 시각만 있었다. 카드는 그릴 숫자가 없어 "알 수 없음"을 표시했다. 저장·조회 경로는 정상이었다.
+
+중요한 추론: **reset이 읽혔다는 것은 섹션 범위가 `0%` 줄을 포함했다는 뜻**이다(페이지에서 `0%`가 reset보다 앞에 온다). 즉 값이 범위 밖이라 놓친 것이 아니라 **찾고도 버린** 것이다.
+
+### 원인
+
+`parsePercentValues`가 `singleOrNull()`을 썼다.
+
+```kotlin
+val used = usedValues.singleOrNull()
+val remaining = remainingValues.singleOrNull()
+...
+return PercentValues(unlabeledValues.singleOrNull(), null)
+```
+
+같은 의미로 분류된 퍼센트가 **둘 이상이면 전부 null**이 된다. 사용자가 손으로 복사해 보낸 페이지에는 퍼센트가 하나뿐이라 단위 테스트는 통과했지만, 실제 `document.body.innerText`에는 같은 섹션 안에 퍼센트가 더 들어 있었다. 그래서 로컬 테스트는 성공하고 기기에서는 실패하는 괴리가 생겼다.
+
+### 변경
+
+- `ConsumerUsageParser.parsePercentValues`: 퍼센트 후보에 줄 번호를 붙이고, 같은 의미가 여럿이면 **라벨에 가장 가까운(첫 번째) 값**을 채택한다. 카드 레이아웃이 라벨 → 값 순서이므로 첫 값이 그 한도의 값이다.
+- used/remaining이 둘 다 명시됐는데 합이 100이 아니면 여전히 unknown으로 둔다. 이 보호는 유지한다.
+- 의미 표시가 없는 퍼센트(UNKNOWN)는 **라벨 바로 아래 2줄 이내**일 때만 채택한다. 그보다 멀면 페이지의 다른 요소로 본다.
+- `ProviderWebActivity`: 읽기 결과에 수치가 하나도 없으면 `read-context`로 **라벨 주변 8줄만** 추적에 남긴다. `WebTrace.scrub`로 이메일·긴 토큰을 치우고 160자로 자른다. 페이지 전체나 본문을 남기지 않는다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **52 tests / failures 0 / errors 0** (49 → 52). `lintDebug` errors 0. `assembleDebug` 통과.
+
+신규 회귀 3건:
+
+- 섹션에 `0%`와 `15%`가 함께 있어도 라벨 바로 아래 `0%`를 채택하고 reset도 유지한다
+- 라벨 직하의 의미 없는 퍼센트는 채택하고, 4줄 아래 퍼센트는 채택하지 않는다
+- 2026-09-21 실제 페이지 fixture(앞선 커밋)도 계속 통과한다
+
+기존 "합이 100이 아닌 모순된 두 값은 unknown" 회귀도 그대로 통과한다.
+
+### 미검증
+
+- **실기기에서 Grok 값이 실제로 표시되는지는 아직 확인되지 않았다.** 섹션에 퍼센트가 여러 개였다는 것은 추론이며, 만약 `0%`가 애초에 `innerText`에 없다면(SVG/canvas 렌더링 등) 이 수정으로는 해결되지 않는다.
+- 그 경우를 위해 `read-context`를 넣었다. 다음 추적에 라벨 주변 텍스트가 찍히므로 어느 쪽인지 바로 갈린다.

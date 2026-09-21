@@ -305,6 +305,14 @@ class ProviderWebActivity : ComponentActivity() {
         }
     }
 
+    /** The lines around the usage label only, so a diagnosis never carries the page. */
+    private fun usageContext(text: String): String {
+        val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        val anchor = lines.indexOfFirst { Regex("한도|limit|usage|사용량", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+        if (anchor < 0) return "no usage label among ${lines.size} lines"
+        return lines.subList(anchor, minOf(lines.size, anchor + 8)).joinToString(" | ")
+    }
+
     private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {
         val decision = WebNavigationPolicy.inspect(url, hosts)
         Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision main=$mainFrame")
@@ -448,6 +456,13 @@ class ProviderWebActivity : ComponentActivity() {
                     // A parse can succeed on a reset time alone and store a bucket with
                     // no number, which reads as "saved" here but shows as unknown on the
                     // card. Record what came out so the two are told apart.
+                    if (result is ProviderResult.Success && result.snapshot.buckets.none {
+                            it.usedPercent != null || it.remainingPercent != null || it.used != null || it.remaining != null
+                        }) {
+                        // Nothing numeric survived parsing, so the shape of the text
+                        // around the label is the only thing left that explains it.
+                        WebTrace.record("read-context", usageContext(page.text))
+                    }
                     WebTrace.record("read", when (result) {
                         is ProviderResult.Success -> result.snapshot.buckets.joinToString(" ") { bucket ->
                             val value = bucket.usedPercent?.let { "${it.toInt()}%used" }

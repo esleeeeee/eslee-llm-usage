@@ -97,7 +97,7 @@ object ConsumerUsageParser {
 
     private enum class PercentMeaning { USED, REMAINING, UNKNOWN }
 
-    private data class PercentReading(val value: Double, val meaning: PercentMeaning)
+    private data class PercentReading(val value: Double, val meaning: PercentMeaning, val line: Int)
 
     private data class PercentValues(val used: Double?, val remaining: Double?)
 
@@ -115,13 +115,14 @@ object ConsumerUsageParser {
         val readings = lines.flatMapIndexed { lineIndex, line ->
             percentage.findAll(line).mapNotNull { match ->
                 val value = match.groupValues[1].toDoubleOrNull()?.takeIf { it in 0.0..100.0 } ?: return@mapNotNull null
-                PercentReading(value, classifyPercent(lines, lineIndex, match))
+                PercentReading(value, classifyPercent(lines, lineIndex, match), lineIndex)
             }.toList()
         }
-        val usedValues = readings.filter { it.meaning == PercentMeaning.USED }.map { it.value }.distinct()
-        val remainingValues = readings.filter { it.meaning == PercentMeaning.REMAINING }.map { it.value }.distinct()
-        val used = usedValues.singleOrNull()
-        val remaining = remainingValues.singleOrNull()
+        // A quota's own number is the first one under its label. Live pages carry
+        // more percentages in the section than a hand-copied page shows, and
+        // discarding all of them left the bucket with nothing but a reset time.
+        val used = readings.filter { it.meaning == PercentMeaning.USED }.minByOrNull { it.line }?.value
+        val remaining = readings.filter { it.meaning == PercentMeaning.REMAINING }.minByOrNull { it.line }?.value
         if (used != null && remaining != null) {
             return if (kotlin.math.abs(used + remaining - 100.0) <= 0.5) {
                 PercentValues(used, remaining)
@@ -132,8 +133,10 @@ object ConsumerUsageParser {
         }
         if (used != null || remaining != null) return PercentValues(used, remaining)
 
-        val unlabeledValues = readings.filter { it.meaning == PercentMeaning.UNKNOWN }.map { it.value }.distinct()
-        return PercentValues(unlabeledValues.singleOrNull(), null)
+        // With no used/remaining word anywhere, only a percentage sitting directly
+        // under the label is safe to claim; anything further down is page furniture.
+        val unlabeled = readings.filter { it.meaning == PercentMeaning.UNKNOWN }.minByOrNull { it.line }
+        return PercentValues(unlabeled?.takeIf { it.line <= 2 }?.value, null)
     }
 
     private fun classifyPercent(lines: List<String>, lineIndex: Int, token: MatchResult): PercentMeaning {

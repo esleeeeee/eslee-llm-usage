@@ -122,4 +122,34 @@ class ConsumerUsageParserTest {
         assertEquals(0.0, snapshot.extraCredits?.amount ?: -1.0, 0.0)
         assertEquals(SnapshotStatus.SUCCESS, snapshot.status)
     }
+
+    /**
+     * The device reported "weekly=novalue+reset": the live page carries more
+     * percentages in a section than a hand-copied page shows, and requiring a
+     * single reading threw all of them away. The quota's own number is the first
+     * one under its label.
+     */
+    @Test fun extraPercentagesInASectionDoNotEraseTheQuotaValue() {
+        val page = """
+            매주 SuperGrok 한도
+            0%
+            중고
+            15%
+            2026년 9월 25일 오후 4:39 초기화
+        """.trimIndent()
+        val weekly = (ConsumerUsageParser.parse("grok", "a", page, now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(0.0, weekly.usedPercent!!, 0.0)
+        assertEquals(100.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
+    }
+
+    @Test fun anUnlabelledPercentIsTakenOnlyDirectlyUnderItsLabel() {
+        val near = (ConsumerUsageParser.parse("grok", "a", "주간 사용량\n42%\nSomething else\n7%", now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(42.0, near.usedPercent!!, 0.0)
+
+        // Four lines below the label the number belongs to something else.
+        assertTrue(ConsumerUsageParser.parse("grok", "a", "주간 사용량\nfiller\nfiller\nfiller\n42%", now, localZone) is ProviderResult.Failure)
+    }
 }
