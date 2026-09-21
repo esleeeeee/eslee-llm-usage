@@ -29,6 +29,7 @@ import com.eslee.llmusage.widget.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
@@ -128,5 +129,50 @@ class WebUsageCollectionTest {
             assertEquals(last, repository.latest(id)?.snapshotId)
             assertTrue(WidgetStateMapper.rows(context, config, repository).first().values.first().text.contains("40"))
         } finally { database.close() }
+    }
+
+    /**
+     * Reported: a Grok read reports complete, yet neither the dashboard nor the
+     * account list shows a value. This walks the same path the read button takes
+     * -- parse, store, then read back the way the screens do -- so storage and
+     * retrieval are ruled in or out without a device.
+     */
+    @Test fun grokUsageSurvivesFromReadToTheOverviewTheScreensObserve(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = (context.applicationContext as UsageApplication).graph.repository
+        val id = repository.addAccount("grok", "Grok storage regression")
+        try {
+            val page = listOf(
+                "사용량", "매주 SuperGrok 한도", "", "0%", "중고",
+                "2026년 9월 25일 오후 4:39 초기화", "추가 사용 크레딧", "", "US\$0.00",
+            ).joinToString("\n")
+
+            val result = repository.recordWeb(id, page)
+            assertTrue("recordWeb returned $result", result is ProviderResult.Success)
+
+            val stored = repository.latest(id)
+            assertNotNull("nothing stored for the account after a successful read", stored)
+            val weekly = stored!!.buckets.firstOrNull { it.id == "weekly" }
+            assertNotNull("stored snapshot has no weekly bucket: ${stored.buckets.map { it.id }}", weekly)
+            assertEquals(0.0, weekly!!.usedPercent!!, 0.0)
+            assertEquals(100.0, weekly.remainingPercent!!, 0.0)
+
+            // The dashboard and the account list both render from this flow.
+            val overview = withTimeout(10_000) {
+                var row = repository.accounts.first().firstOrNull { it.account.id == id }
+                while (row?.snapshot == null) { delay(100); row = repository.accounts.first().firstOrNull { it.account.id == id } }
+                row
+            }
+            assertNotNull("overview row lost the snapshot the screens read", overview.snapshot)
+            assertEquals(id, overview.account.id)
+            assertNull("a successful read must clear the error state", overview.account.lastErrorCode)
+
+            // What the card actually draws.
+            val primary = com.eslee.llmusage.core.model.UsagePresentation.primary(overview.snapshot!!, overview.account.primaryBucketId)
+            assertNotNull("no primary bucket for the card to draw", primary)
+            assertEquals(100.0, com.eslee.llmusage.core.model.UsageNormalizer.remainingPercent(primary!!)!!, 0.0)
+        } finally {
+            repository.deleteAccount(id)
+        }
     }
 }
