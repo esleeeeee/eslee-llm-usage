@@ -76,13 +76,16 @@ jobs:
           PY
           )
           TAG="v$VERSION"
-          cp app/build/outputs/apk/debug/app-debug.apk "eslee-llm-usage-${TAG}-debug.apk"
-          cp app/build/outputs/apk/release/app-release.apk "eslee-llm-usage-${TAG}-release.apk"
+          # Only the release APK is published: the debug build is debuggable, so an
+          # attached ADB can read the provider session cookies this app stores, it
+          # carries the Demo sample provider, and it is ~13x larger.
+          cp app/build/outputs/apk/release/app-release.apk "eslee-llm-usage-${TAG}.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "eslee-llm-usage-${TAG}-debug.apk" "eslee-llm-usage-${TAG}-release.apk" --clobber
+            gh release upload "$TAG" "eslee-llm-usage-${TAG}.apk" --clobber
           else
-            gh release create "$TAG" "eslee-llm-usage-${TAG}-debug.apk" "eslee-llm-usage-${TAG}-release.apk" \
+            gh release create "$TAG" "eslee-llm-usage-${TAG}.apk" \
               --target "$GITHUB_SHA" \
+              --prerelease \
               --title "eslee LLM Usage $TAG" \
-              --notes "Build $TAG. Debug APK for Android 9 (API 28) and later. Device and live-provider verification are recorded in BUILD_REPORT.md."
+              --notes "Build $TAG. Signed release APK for Android 9 (API 28) and later. Device and live-provider verification are recorded in BUILD_REPORT.md."
           fi
