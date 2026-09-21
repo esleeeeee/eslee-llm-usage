@@ -75,7 +75,7 @@ class ProviderWebActivity : ComponentActivity() {
                 clipToPadding = true
                 fitsSystemWindows = false
             }
-            val toolbar = LinearLayout(this@ProviderWebActivity).apply {
+            val toolbar = SwipePanel(this@ProviderWebActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 elevation = 12f
                 isClickable = true
@@ -123,27 +123,9 @@ class ProviderWebActivity : ComponentActivity() {
                 }
                 details.visibility = target
             }
-            handle.setOnTouchListener(object : android.view.View.OnTouchListener {
-                private val slop = android.view.ViewConfiguration.get(this@ProviderWebActivity).scaledTouchSlop
-                private var startY = 0f
-                private var dragged = false
-                override fun onTouch(v: android.view.View, event: android.view.MotionEvent): Boolean {
-                    when (event.actionMasked) {
-                        android.view.MotionEvent.ACTION_DOWN -> { startY = event.rawY; dragged = false }
-                        android.view.MotionEvent.ACTION_MOVE -> {
-                            val delta = event.rawY - startY
-                            // Pull the panel down out of the way; push it back up to reach it.
-                            if (!dragged && kotlin.math.abs(delta) > slop) { dragged = true; setExpanded(delta < 0) }
-                        }
-                        android.view.MotionEvent.ACTION_UP -> {
-                            if (!dragged) setExpanded(details.visibility != android.view.View.VISIBLE)
-                            v.performClick()
-                        }
-                        else -> return false
-                    }
-                    return true
-                }
-            })
+            // Pull the panel down out of the way; push it back up to reach it.
+            toolbar.onSwipe = { down -> setExpanded(!down) }
+            handle.setOnClickListener { setExpanded(details.visibility != android.view.View.VISIBLE) }
             details.addView(heading)
             details.addView(TextView(this@ProviderWebActivity).apply { setText(R.string.web_email_login_hint) })
             details.addView(actions)
@@ -463,12 +445,29 @@ class ProviderWebActivity : ComponentActivity() {
                 if (page != null && UsageSurface.canCollect(page.url, provider.usageUrl, page.text, page.hasPassword)) {
                     val result = graph.repository.recordWeb(accountId, page.text)
                     saved = result is ProviderResult.Success
+                    // A parse can succeed on a reset time alone and store a bucket with
+                    // no number, which reads as "saved" here but shows as unknown on the
+                    // card. Record what came out so the two are told apart.
+                    WebTrace.record("read", when (result) {
+                        is ProviderResult.Success -> result.snapshot.buckets.joinToString(" ") { bucket ->
+                            val value = bucket.usedPercent?.let { "${it.toInt()}%used" }
+                                ?: bucket.remainingPercent?.let { "${it.toInt()}%left" }
+                                ?: bucket.used?.let { "${it.toInt()}${bucket.unit.name}" }
+                                ?: "novalue"
+                            "${bucket.id}=$value${if (bucket.resetAt != null) "+reset" else ""}"
+                        }.ifBlank { "success but no buckets" }
+                        is ProviderResult.Failure -> "failed ${result.code}"
+                    })
                     if (saved) {
                         verified = true
                         ProfileSessions.flush(web)
                         statusLine?.text = getString(R.string.web_saved_at, java.text.DateFormat.getTimeInstance().format(java.util.Date()))
                     } else if (toast) statusLine?.setText(R.string.web_read_failed)
-                } else if (toast) statusLine?.setText(R.string.web_login_hint)
+                } else {
+                    WebTrace.record("read-skipped", if (page == null) "capture timed out"
+                        else "kind=${UsageSurface.classify(page.url, page.text)} password=${page.hasPassword} provider=${UsageSurface.isProviderPage(page.url, provider.usageUrl)}")
+                    if (toast) statusLine?.setText(R.string.web_login_hint)
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -538,4 +537,49 @@ class ProviderWebActivity : ComponentActivity() {
             "(function(){var t=document.body?document.body.innerText.slice(0,8000):'';return JSON.stringify({url:location.href,text:t,hasPassword:!!document.querySelector('input[type=password]'),hasComposer:!!document.querySelector('textarea,[contenteditable=\"true\"]')});})()"
 
     }
+}
+
+/**
+ * A vertical drag anywhere on the panel collapses or expands it. Intercepting
+ * the gesture rather than listening on a single handle means the swipe works
+ * over the buttons and labels too, while taps still reach them.
+ */
+private class SwipePanel(context: android.content.Context) : LinearLayout(context) {
+    var onSwipe: ((down: Boolean) -> Unit)? = null
+    private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private var startX = 0f
+    private var startY = 0f
+    private var dragging = false
+
+    override fun onInterceptTouchEvent(event: android.view.MotionEvent): Boolean {
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; dragging = false }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dy = event.y - startY
+                if (!dragging && kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(event.x - startX)) {
+                    dragging = true
+                    onSwipe?.invoke(dy > 0)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; dragging = false }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dy = event.y - startY
+                if (!dragging && kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(event.x - startX)) {
+                    dragging = true
+                    onSwipe?.invoke(dy > 0)
+                }
+            }
+            android.view.MotionEvent.ACTION_UP -> performClick()
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean = super.performClick()
 }
