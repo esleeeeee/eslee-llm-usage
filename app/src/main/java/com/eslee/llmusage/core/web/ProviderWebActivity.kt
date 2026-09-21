@@ -451,7 +451,7 @@ class ProviderWebActivity : ComponentActivity() {
             try {
                 val page = WebUsageReader.capture(web)
                 if (page != null && UsageSurface.canCollect(page.url, provider.usageUrl, page.text, page.hasPassword)) {
-                    val result = graph.repository.recordWeb(accountId, page.text)
+                    val result = graph.repository.recordWeb(accountId, page.text, page.rich)
                     saved = result is ProviderResult.Success
                     // A parse can succeed on a reset time alone and store a bucket with
                     // no number, which reads as "saved" here but shows as unknown on the

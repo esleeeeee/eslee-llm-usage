@@ -115,12 +115,23 @@ class UsageRepository(
         cleanup()
     }
 
-    suspend fun recordWeb(id: String, text: String): ProviderResult {
+    /** True when parsing found an actual figure, not just a label or a reset time. */
+    private fun ProviderResult.carriesNumbers(): Boolean = this is ProviderResult.Success &&
+        snapshot.buckets.any { it.usedPercent != null || it.remainingPercent != null || it.used != null || it.remaining != null }
+
+    suspend fun recordWeb(id: String, text: String, richText: String? = null): ProviderResult {
         val stored = locks.getOrPut(id) { Mutex() }.withLock {
             val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE }
                 ?: return@withLock ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "계정을 사용할 수 없습니다.")
             val started = System.currentTimeMillis()
-            val result = withContext(Dispatchers.Default) { ConsumerUsageParser.parse(account.providerId, id, text, started) }
+            val result = withContext(Dispatchers.Default) {
+                val visible = ConsumerUsageParser.parse(account.providerId, id, text, started)
+                // Only reach for the structural reading when the painted text held no
+                // figure, so providers that already parse keep the text they parse from.
+                if (visible.carriesNumbers() || richText.isNullOrBlank() || richText == text) visible
+                else ConsumerUsageParser.parse(account.providerId, id, richText, started)
+                    .takeIf { it.carriesNumbers() } ?: visible
+            }
             saveResult(account, result, started)
             result
         }

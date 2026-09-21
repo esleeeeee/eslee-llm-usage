@@ -52,7 +52,10 @@ class WebUsageReader(
                             continue
                         }
                         if (page != null && UsageSurface.canCollect(page.url, provider.usageUrl, page.text, page.hasPassword)) {
-                            val result = ConsumerUsageParser.parse(account.providerId, account.id, page.text)
+                            val visible = ConsumerUsageParser.parse(account.providerId, account.id, page.text)
+                            val result = if (carriesNumbers(visible) || page.rich.isBlank() || page.rich == page.text) visible
+                            else ConsumerUsageParser.parse(account.providerId, account.id, page.rich)
+                                .takeIf(::carriesNumbers) ?: visible
                             if (result is ProviderResult.Success) {
                                 last = ProviderResult.Success(result.snapshot.copy(syncMode = SyncMode.BACKGROUND))
                                 if (result.snapshot.status == SnapshotStatus.SUCCESS) break
@@ -72,7 +75,11 @@ class WebUsageReader(
     }
 
     companion object {
-        data class Page(val url: String, val text: String, val hasPassword: Boolean)
+        data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "")
+
+        /** True when parsing found an actual figure, not just a label or a reset time. */
+        fun carriesNumbers(result: ProviderResult): Boolean = result is ProviderResult.Success &&
+            result.snapshot.buckets.any { it.usedPercent != null || it.remainingPercent != null || it.used != null || it.remaining != null }
 
         suspend fun capture(web: WebView): Page? = withContext(Dispatchers.Main) {
             withTimeoutOrNull(5_000L) {
@@ -80,7 +87,7 @@ class WebUsageReader(
                     web.evaluateJavascript(CAPTURE_JS) { encoded ->
                         val page = runCatching {
                             val json = JSONObject(JSONTokener(encoded).nextValue() as String)
-                            Page(json.getString("url"), json.getString("text"), json.optBoolean("hasPassword"))
+                            Page(json.getString("url"), json.getString("text"), json.optBoolean("hasPassword"), json.optString("rich"))
                         }.getOrNull()
                         if (continuation.isActive) continuation.resume(page)
                     }
@@ -110,6 +117,13 @@ class WebUsageReader(
             }
         }
 
+        /**
+         * `innerText` reports what the layout paints, and a provider can draw its
+         * numbers where that cannot reach them: SVG chart text, a shadow root, or
+         * content the engine skipped. Grok's usage page renders every label but no
+         * figure that way. So a second, structural reading walks the tree for text
+         * nodes in document order, used only when the first yields no number.
+         */
         val CAPTURE_JS = """
             (function(){
               var text=document.body?document.body.innerText:'';
@@ -119,7 +133,22 @@ class WebUsageReader(
                 var value=e.getAttribute('aria-valuetext')||'';
                 if(label&&value)text+='\n'+label+'\n'+value;
               });
-              return JSON.stringify({url:location.href,text:text.slice(0,120000),hasPassword:!!document.querySelector('input[type=password]')});
+              var rich=[];
+              function walk(n){
+                if(!n)return;
+                if(n.nodeType===3){var t=n.nodeValue.replace(/\s+/g,' ').trim();if(t)rich.push(t);return;}
+                if(n.nodeType!==1&&n.nodeType!==11)return;
+                var tag=n.tagName?String(n.tagName).toUpperCase():'';
+                if(tag==='SCRIPT'||tag==='STYLE'||tag==='NOSCRIPT'||tag==='TEMPLATE')return;
+                if(n.nodeType===1){
+                  try{var s=window.getComputedStyle(n);if(s&&(s.display==='none'||s.visibility==='hidden'))return;}catch(err){}
+                  if(n.shadowRoot)walk(n.shadowRoot);
+                }
+                for(var c=n.firstChild;c;c=c.nextSibling)walk(c);
+              }
+              try{walk(document.body);}catch(err){}
+              return JSON.stringify({url:location.href,text:text.slice(0,120000),
+                rich:rich.join('\n').slice(0,120000),hasPassword:!!document.querySelector('input[type=password]')});
             })()
         """.trimIndent()
     }

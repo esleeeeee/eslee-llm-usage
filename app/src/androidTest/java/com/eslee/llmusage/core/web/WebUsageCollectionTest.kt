@@ -175,4 +175,47 @@ class WebUsageCollectionTest {
             repository.deleteAccount(id)
         }
     }
+
+    /**
+     * Grok paints its usage labels where innerText can read them and its figures
+     * where it cannot, so the visible capture carried "매주 SuperGrok 한도" and
+     * "중고" with no percentage at all. The structural capture has the number.
+     */
+    @Test fun aPageWhoseNumbersInnerTextCannotSeeFallsBackToTheStructuralCapture(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = (context.applicationContext as UsageApplication).graph.repository
+        val id = repository.addAccount("grok", "Rich capture regression")
+        try {
+            val visible = listOf("사용량", "매주 SuperGrok 한도", "중고", "2026년 9월 25일 오후 4:39 초기화").joinToString("\n")
+            val rich = listOf("사용량", "매주 SuperGrok 한도", "0%", "중고", "2026년 9월 25일 오후 4:39 초기화").joinToString("\n")
+
+            // The visible capture alone yields a bucket with no figure to show.
+            assertFalse(WebUsageReader.carriesNumbers(
+                com.eslee.llmusage.provider.ConsumerUsageParser.parse("grok", id, visible)))
+
+            val result = repository.recordWeb(id, visible, rich)
+            assertTrue("recordWeb returned $result", result is ProviderResult.Success)
+            val weekly = repository.latest(id)!!.buckets.first { it.id == "weekly" }
+            assertEquals(0.0, weekly.usedPercent!!, 0.0)
+            assertEquals(100.0, weekly.remainingPercent!!, 0.0)
+            assertNotNull("the reset from the visible capture must survive", weekly.resetAt)
+        } finally {
+            repository.deleteAccount(id)
+        }
+    }
+
+    /** A provider that already parses keeps the text it parses from. */
+    @Test fun theStructuralCaptureIsIgnoredWhenTheVisibleTextAlreadyHasFigures(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = (context.applicationContext as UsageApplication).graph.repository
+        val id = repository.addAccount("grok", "Visible capture wins")
+        try {
+            val visible = listOf("주간 사용량", "42%", "used").joinToString("\n")
+            val rich = listOf("주간 사용량", "7%", "used").joinToString("\n")
+            repository.recordWeb(id, visible, rich)
+            assertEquals(42.0, repository.latest(id)!!.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
+        } finally {
+            repository.deleteAccount(id)
+        }
+    }
 }

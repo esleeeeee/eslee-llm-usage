@@ -573,3 +573,45 @@ return PercentValues(unlabeledValues.singleOrNull(), null)
 
 - **실기기에서 Grok 값이 실제로 표시되는지는 아직 확인되지 않았다.** 섹션에 퍼센트가 여러 개였다는 것은 추론이며, 만약 `0%`가 애초에 `innerText`에 없다면(SVG/canvas 렌더링 등) 이 수정으로는 해결되지 않는다.
 - 그 경우를 위해 `read-context`를 넣었다. 다음 추적에 라벨 주변 텍스트가 찍히므로 어느 쪽인지 바로 갈린다.
+
+---
+
+## v0.1.15 — 숫자가 innerText에 없었다 (2026-09-22)
+
+### 결정적 증거
+
+v0.1.14에서 추가한 `read-context`가 원인을 한 줄로 드러냈다.
+
+```
+read-context · 사용량 | 사용량 | 매주 SuperGrok 한도 | 중고 | 2026년 9월 25일 오후 4:39 초기화 | 추가 사용 크레딧 | 추가 크레딧 | 크레딧 구매
+read · weekly=novalue+reset
+```
+
+`매주 SuperGrok 한도` 다음이 바로 `중고`다. **`0%`가 캡처된 텍스트에 존재하지 않는다.** `US$0.00`도 없다. 라벨과 문구는 전부 있는데 **숫자만 빠져 있다.**
+
+즉 파싱 문제가 아니라 **캡처 문제**였다. v0.1.14의 "섹션에 퍼센트가 여러 개"라는 가설은 틀렸다. 퍼센트는 여러 개가 아니라 **하나도 없었다.** (v0.1.14의 수정 자체는 유효한 개선이라 유지한다.)
+
+`document.body.innerText`는 레이아웃이 그리는 텍스트만 반환한다. provider가 숫자를 SVG 차트 텍스트, shadow root, 또는 엔진이 건너뛴 영역에 그리면 innerText는 그것을 보지 못한다. Grok 사용량 화면이 정확히 그런 경우다.
+
+### 변경
+
+- `WebUsageReader.CAPTURE_JS`: 기존 `innerText` 캡처는 그대로 두고, **구조적 캡처**를 하나 더 만든다. DOM을 문서 순서로 순회하며 텍스트 노드를 모으고, shadow root로 들어가며, `display:none`·`visibility:hidden`과 script/style/template은 건너뛴다. SVG 텍스트도 포함된다. 결과를 `rich` 필드로 함께 반환한다.
+- `WebUsageReader.Page`: `rich` 필드 추가.
+- `UsageRepository.recordWeb(id, text, richText)`: **1차 파싱이 숫자를 하나도 얻지 못했을 때만** `rich`로 재파싱하고, 그쪽이 숫자를 내놓을 때만 채택한다. 이미 파싱되는 provider(Codex 등)는 원래 텍스트를 그대로 쓴다.
+- `WebUsageReader`의 백그라운드 수집 경로에도 같은 폴백을 적용한다.
+- `ProviderWebActivity`: 읽기 버튼이 `page.rich`를 함께 넘긴다.
+
+폴백 조건을 "숫자가 없을 때"로 좁힌 이유는 회귀 방지다. 구조적 캡처는 줄 구성이 innerText와 달라 이미 동작하는 파싱을 흔들 수 있다.
+
+### 검증
+
+로컬 `testDebugUnitTest` **52 tests / failures 0 / errors 0**. `lintDebug` errors 0. `assembleDebug`, `assembleDebugAndroidTest` 통과.
+
+신규 계기 회귀 2건(CI 에뮬레이터에서 실행):
+
+- 라벨과 `중고`만 있고 퍼센트가 없는 visible 텍스트 + 퍼센트가 있는 rich 텍스트 → weekly 0% 사용 / 100% 남음으로 저장되고, visible에서 읽은 reset도 유지된다
+- visible에 이미 42%가 있으면 rich의 7%를 쓰지 않는다
+
+### 미검증
+
+- **실기기에서 Grok 값이 표시되는지는 아직 확인되지 않았다.** 구조적 캡처가 그 숫자에 실제로 닿는지는 기기에서만 알 수 있다. 숫자가 canvas로 그려졌거나 CSS 생성 콘텐츠라면 이 방법으로도 닿지 않으며, 그 경우 `read-context`에 여전히 숫자가 없는 것으로 나타난다.
