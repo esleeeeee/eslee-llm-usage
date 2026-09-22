@@ -224,8 +224,8 @@ internal fun AccountCard(overview: AccountOverview, providerName: String, staleH
                     Text(account.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(providerName, snapshot?.planName).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                StatusChip(status)
             }
+            StatusChip(status)
             val gauges = gaugeBuckets(snapshot, account.primaryBucketId)
             when {
                 gauges.isNotEmpty() -> gauges.forEach { BucketRow(it, account.providerId, warning = status.warning) }

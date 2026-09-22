@@ -13,6 +13,8 @@ import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.test.core.app.ActivityScenario
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.getAppWidgetState
@@ -57,8 +59,8 @@ class WidgetRefreshIntegrationTest {
         val accountIds = mutableListOf<String>()
         var widgetId: Int? = null
         val ownedWork = mutableSetOf<java.util.UUID>()
-        val launchMonitor = instrumentation.addMonitor(MainActivity::class.java.name,
-            Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null), true)
+        var scenario: ActivityScenario<MainActivity>? = null
+        var launchMonitor: Instrumentation.ActivityMonitor? = null
         lateinit var hostView: AppWidgetHostView
         try {
             graph.settings.update(previous.copy(intervalMinutes = 0))
@@ -78,11 +80,20 @@ class WidgetRefreshIntegrationTest {
                     manager.bindAppWidgetIdIfAllowed(allocated, ComponentName(context, UsageWidgetReceiver::class.java)))
             } finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
             val info = requireNotNull(manager.getAppWidgetInfo(allocated))
-            instrumentation.runOnMainSync {
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            scenario.onActivity { activity ->
                 host.startListening()
-                hostView = host.createView(context, allocated, info)
+                hostView = host.createView(activity, allocated, info)
                 hostView.updateAppWidgetSize(Bundle(), 220, 150, 220, 150)
+                // View posts PerformClick after ACTION_UP. A detached host keeps that
+                // runnable queued forever, so it cannot exercise the PendingIntent.
+                val density = activity.resources.displayMetrics.density
+                activity.setContentView(FrameLayout(activity).apply {
+                    addView(hostView, FrameLayout.LayoutParams((220 * density).toInt(), (150 * density).toInt()))
+                })
             }
+            launchMonitor = instrumentation.addMonitor(MainActivity::class.java.name,
+                Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null), true)
             WidgetConfigStore(context).save(WidgetConfig(allocated, accountIds.map { WidgetSelection(it, "weekly") }))
             val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(allocated)
             UsageGlanceWidget().update(context, glanceId)
@@ -98,13 +109,11 @@ class WidgetRefreshIntegrationTest {
                         var clicked = false
                         instrumentation.runOnMainSync {
                             val density = context.resources.displayMetrics.density
-                            hostView.measure(View.MeasureSpec.makeMeasureSpec((220 * density).toInt(), View.MeasureSpec.EXACTLY),
-                                View.MeasureSpec.makeMeasureSpec((150 * density).toInt(), View.MeasureSpec.EXACTLY))
-                            hostView.layout(0, 0, hostView.measuredWidth, hostView.measuredHeight)
+                            assertTrue("Widget host must be attached for posted clicks to execute", hostView.isAttachedToWindow)
                             val icon = descendants(hostView).firstOrNull {
                                 it.contentDescription == context.getString(R.string.widget_refresh)
                             }
-                            if (icon != null) {
+                            if (icon != null && hostView.isLaidOut && !hostView.isLayoutRequested) {
                                 var target: View = icon
                                 while (!target.isClickable && target.parent is View) target = target.parent as View
                                 assertTrue("Refresh target must include 48dp of touch space", target.width >= (48 * density).toInt())
@@ -138,7 +147,7 @@ class WidgetRefreshIntegrationTest {
                         delay(100)
                     }
                 }
-                assertEquals("Refresh tap opened MainActivity", 0, launchMonitor.hits)
+                assertEquals("Refresh tap opened MainActivity", 0, launchMonitor!!.hits)
                 accountIds.forEach { id ->
                     assertNotEquals("Worker did not refresh $id", snapshotsBefore[id], repository.latest(id)?.snapshotId)
                     assertNull(repository.account(id)?.lastErrorCode)
@@ -148,7 +157,8 @@ class WidgetRefreshIntegrationTest {
                 assertEquals(listOf("62", "62"), WidgetStateMapper.slots(context, WidgetConfigStore(context).get(allocated)).map { it.number })
             }
         } finally {
-            instrumentation.removeMonitor(launchMonitor)
+            launchMonitor?.let(instrumentation::removeMonitor)
+            scenario?.close()
             try {
                 ownedWork.forEach { work.cancelWorkById(it).result.get(10, TimeUnit.SECONDS) }
                 instrumentation.runOnMainSync { host.stopListening() }

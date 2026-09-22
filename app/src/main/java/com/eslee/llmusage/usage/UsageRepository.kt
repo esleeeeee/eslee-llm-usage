@@ -38,6 +38,10 @@ class UsageRepository(
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val lifecycleLock = Mutex()
     private val retryAt = ConcurrentHashMap<String, Long>()
+    private val activeRefreshes = ConcurrentHashMap<String, Deferred<Unit>>()
+    private val sessionResetLocks = ConcurrentHashMap<String, Mutex>()
+    private val resettingSessions = ConcurrentHashMap.newKeySet<String>()
+    private class SessionResetCancellation : CancellationException("Account session reset")
     val accounts = dao.observeOverview().map { rows -> rows.map { AccountOverview(
         json.decodeFromString<Account>(it.account.payload), it.snapshotPayload?.let { payload -> json.decodeFromString<UsageSnapshot>(payload) }) } }
     suspend fun account(id: String) = dao.account(id)?.let { json.decodeFromString<Account>(it.payload) }
@@ -83,28 +87,47 @@ class UsageRepository(
     suspend fun refresh(id: String) {
         val mutex = locks.getOrPut(id) { Mutex() }
         // Coalesce repeated taps: the active request will emit its result to all observers.
-        if (!mutex.tryLock()) return
+        if (id in resettingSessions || !mutex.tryLock()) return
         try {
-            val account = account(id)?.takeIf { it.enabled } ?: return
-            if ((retryAt[id] ?: 0) > System.currentTimeMillis()) return
-            val started = System.currentTimeMillis()
-            val result = try {
-                if (account.authMode == AuthMode.WEB_PROFILE) {
-                    val provider = requireNotNull(registry.definition(account.providerId))
-                    consumerFetch?.invoke(account, provider) ?: webReader.fetch(account, provider)
-                } else if (registry.definition(account.providerId)?.capabilities?.supportsBackgroundSync != true) {
-                    ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "FOREGROUND_REQUIRED")
-                } else {
-                    val bytes = credentials.getSecret(id)
-                    try { registry.adapter(account.providerId)?.fetch(account, bytes?.toString(Charsets.UTF_8).orEmpty())
-                        ?: ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "") }
-                    finally { bytes?.fill(0) }
+            supervisorScope {
+                val collection = async(start = CoroutineStart.LAZY) {
+                    if (id in resettingSessions) throw SessionResetCancellation()
+                    collectRefresh(id)
                 }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "") }
-            saveResult(account, result, started)
+                activeRefreshes[id] = collection
+                try {
+                    collection.await()
+                } catch (reset: SessionResetCancellation) {
+                    // Logout stops only this account, while sync_all continues. Never
+                    // consume cancellation of the worker or its caller.
+                    currentCoroutineContext().ensureActive()
+                } finally {
+                    activeRefreshes.remove(id, collection)
+                }
+            }
         } finally { mutex.unlock() }
         updateWidgets(context)
+    }
+
+    private suspend fun collectRefresh(id: String) {
+        val account = account(id)?.takeIf { it.enabled } ?: return
+        if ((retryAt[id] ?: 0) > System.currentTimeMillis()) return
+        val started = System.currentTimeMillis()
+        val result = try {
+            if (account.authMode == AuthMode.WEB_PROFILE) {
+                val provider = requireNotNull(registry.definition(account.providerId))
+                consumerFetch?.invoke(account, provider) ?: webReader.fetch(account, provider)
+            } else if (registry.definition(account.providerId)?.capabilities?.supportsBackgroundSync != true) {
+                ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "FOREGROUND_REQUIRED")
+            } else {
+                val bytes = credentials.getSecret(id)
+                try { registry.adapter(account.providerId)?.fetch(account, bytes?.toString(Charsets.UTF_8).orEmpty())
+                    ?: ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "") }
+                finally { bytes?.fill(0) }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "") }
+        saveResult(account, result, started)
     }
 
     suspend fun refreshAll(webOnly: Boolean? = null) {
@@ -164,8 +187,18 @@ class UsageRepository(
         }
     }
 
-    suspend fun logout(id: String) = locks.getOrPut(id) { Mutex() }.withLock {
-        val account = account(id) ?: return@withLock
+    suspend fun logout(id: String) = sessionResetLocks.getOrPut(id) { Mutex() }.withLock {
+        resettingSessions.add(id)
+        try {
+            activeRefreshes[id]?.cancel(SessionResetCancellation())
+            locks.getOrPut(id) { Mutex() }.withLock { logoutLocked(id) }
+        } finally {
+            resettingSessions.remove(id)
+        }
+    }
+
+    private suspend fun logoutLocked(id: String) {
+        val account = account(id) ?: return
         credentials.deleteSecret(id)
         account.profileName?.let { withContext(Dispatchers.Main) { ProfileSessions.delete(it) } }
         WorkManager.getInstance(context).cancelUniqueWork("sync_$id")
