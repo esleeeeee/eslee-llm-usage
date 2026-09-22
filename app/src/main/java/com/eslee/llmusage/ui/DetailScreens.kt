@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.webkit.WebViewCompat
+import com.eslee.llmusage.BuildConfig
 import com.eslee.llmusage.R
 import com.eslee.llmusage.app.AppGraph
 import com.eslee.llmusage.core.model.*
@@ -195,6 +196,8 @@ internal fun DiagnosticsScreen(graph: AppGraph) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val details = listOf(
+        // Which build produced a report is the first thing anyone reading one needs.
+        stringResource(R.string.app_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
         stringResource(R.string.android_version, Build.VERSION.RELEASE),
         stringResource(R.string.webview_version, WebViewCompat.getCurrentWebViewPackage(context)?.versionName ?: stringResource(R.string.unknown)),
         stringResource(R.string.multi_profile, stringResource(if (ProfileSessions.supported()) R.string.available else R.string.unavailable)),
@@ -208,7 +211,8 @@ internal fun DiagnosticsScreen(graph: AppGraph) {
         items(details) { Text(it) }
         item { TextButton(onClick = {
             // The trace leads: it is the part someone is asked to send back.
-            val safeReport = "$traceTitle (${trace.size})\n" + trace.joinToString("\n").ifBlank { emptyTrace } +
+            val safeReport = details.first() + "\n\n" +
+                "$traceTitle (${trace.size})\n" + trace.joinToString("\n").ifBlank { emptyTrace } +
                 "\n\n" + details.joinToString("\n") +
                 "\n\n" + logs.take(20).joinToString("\n") { "${timeLabel(it.startedAt)} ${it.resultCode}" }
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, safeReport), exportTitle))

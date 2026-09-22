@@ -106,6 +106,7 @@
     <string name="web_source">Visible web page</string>
     <string name="api_source">Official API</string>
     <string name="user_source">User entered</string>
+    <string name="app_version">App version: %1$s (%2$d)</string>
     <string name="android_version">Android: %1$s</string>
     <string name="webview_version">WebView: %1$s</string>
     <string name="multi_profile">Isolated browser profiles: %1$s</string>

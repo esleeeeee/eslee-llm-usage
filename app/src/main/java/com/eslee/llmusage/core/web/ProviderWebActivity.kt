@@ -461,7 +461,10 @@ class ProviderWebActivity : ComponentActivity() {
                         }) {
                         // Nothing numeric survived parsing, so the shape of the text
                         // around the label is the only thing left that explains it.
+                        // Both captures are shown: if the figure is absent from each,
+                        // it is not in the document at all.
                         WebTrace.record("read-context", usageContext(page.text))
+                        WebTrace.record("rich-context", if (page.rich.isBlank()) "empty" else usageContext(page.rich))
                     }
                     WebTrace.record("read", when (result) {
                         is ProviderResult.Success -> result.snapshot.buckets.joinToString(" ") { bucket ->

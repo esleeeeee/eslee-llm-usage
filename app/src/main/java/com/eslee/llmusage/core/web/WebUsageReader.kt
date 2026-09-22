@@ -134,6 +134,14 @@ class WebUsageReader(
                 if(label&&value)text+='\n'+label+'\n'+value;
               });
               var rich=[];
+              function digits(v){return v&&/[0-9]/.test(v);}
+              function pseudo(el,which){
+                try{
+                  var c=window.getComputedStyle(el,which).content;
+                  if(!c||c==='none'||c==='normal')return '';
+                  return c.replace(/^["']|["']${'$'}/g,'');
+                }catch(err){return '';}
+              }
               function walk(n){
                 if(!n)return;
                 if(n.nodeType===3){var t=n.nodeValue.replace(/\s+/g,' ').trim();if(t)rich.push(t);return;}
@@ -142,9 +150,21 @@ class WebUsageReader(
                 if(tag==='SCRIPT'||tag==='STYLE'||tag==='NOSCRIPT'||tag==='TEMPLATE')return;
                 if(n.nodeType===1){
                   try{var s=window.getComputedStyle(n);if(s&&(s.display==='none'||s.visibility==='hidden'))return;}catch(err){}
+                  // A figure can live outside the text tree entirely: drawn by CSS
+                  // content, or exposed only to assistive technology. Keep those that
+                  // carry a digit so a value is never lost, without flooding the text.
+                  var before=pseudo(n,'::before');if(digits(before))rich.push(before.trim());
+                  var attrs=['aria-valuetext','aria-valuenow','aria-label','title'];
+                  for(var a=0;a<attrs.length;a++){
+                    var v=n.getAttribute?n.getAttribute(attrs[a]):null;
+                    if(digits(v)){rich.push(String(v).replace(/\s+/g,' ').trim());break;}
+                  }
+                  // Form controls hold their text in value, not in a child node.
+                  if((tag==='INPUT'||tag==='TEXTAREA')&&digits(n.value))rich.push(String(n.value).trim());
                   if(n.shadowRoot)walk(n.shadowRoot);
                 }
                 for(var c=n.firstChild;c;c=c.nextSibling)walk(c);
+                if(n.nodeType===1){var after=pseudo(n,'::after');if(digits(after))rich.push(after.trim());}
               }
               try{walk(document.body);}catch(err){}
               return JSON.stringify({url:location.href,text:text.slice(0,120000),
