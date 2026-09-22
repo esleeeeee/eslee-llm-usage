@@ -13,6 +13,22 @@ class ConsumerUsageParserTest {
     private fun parsed(provider: String, name: String): ProviderResult =
         ConsumerUsageParser.parse(provider, "account", fixture(provider, name), now, localZone)
 
+    @Test fun grokSplitPercentAndEnglishResetUseLocalZone() {
+        val text = "Weekly SuperGrok Limit\nAbout your included usage\n0\n%\nused\nResets\nSeptember 25, 2026 at 7:39 AM\nExtra Usage Credits\n$0.00"
+        val result = ConsumerUsageParser.parse("grok", "account", text, now, ZoneId.of("UTC")) as ProviderResult.Success
+        val weekly = result.snapshot.buckets.single()
+        assertEquals(0.0, weekly.usedPercent!!, 0.0)
+        assertEquals(100.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
+        val seoul = ConsumerUsageParser.parse("grok", "account", text, now, localZone) as ProviderResult.Success
+        assertEquals(Instant.parse("2026-09-24T22:39:00Z").toEpochMilli(), seoul.snapshot.buckets.single().resetAt)
+    }
+
+    @Test fun splitPercentStillRequiresMeaningAndValidCalendarDate() {
+        val result = ConsumerUsageParser.parse("grok", "account", "Weekly SuperGrok Limit\n35\n%\nResets February 30, 2026 at 7:39 AM", now, localZone)
+        assertTrue(result is ProviderResult.Failure)
+    }
+
     @Test fun grokWeeklyBreakdownResetAndCredits() {
         val snapshot = (parsed("grok", "usage_normal") as ProviderResult.Success).snapshot
         assertEquals(42.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)

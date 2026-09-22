@@ -7,10 +7,12 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.LocalDateTime
+import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.1"
+    const val VERSION = "1.2.2"
     private data class Label(val id: String, val title: String, val pattern: Regex)
     private fun label(id: String, title: String, pattern: String) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE))
     private val labels = mapOf(
@@ -49,7 +51,10 @@ object ConsumerUsageParser {
     ): ProviderResult {
         val dictionary = labels[providerId] ?: return ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "이 서비스의 화면 파서는 지원하지 않습니다.")
         if (visibleText.length > 1_000_000) return ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "화면 텍스트가 너무 큽니다.")
-        val lines = visibleText.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        // A number and its percent sign can be separate DOM text nodes. Join only
+        // that exact adjacent pair; the used/remaining meaning is still required.
+        val normalized = visibleText.replace(Regex("(?m)^(\\s*\\d{1,3}(?:[.]\\d+)?)[ \\t]*\\r?\\n[ \\t]*%"), "$1%")
+        val lines = normalized.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
         val matches = lines.mapIndexedNotNull { index, line -> dictionary.firstOrNull { it.pattern.containsMatchIn(line) }?.let { index to it } }
         val buckets = matches.mapIndexedNotNull { index, (start, label) ->
             val nextLabel = matches.getOrNull(index + 1)?.first ?: lines.size
@@ -193,6 +198,18 @@ object ConsumerUsageParser {
     private fun absoluteTime(line: String, now: Long, localZone: ZoneId): Long? {
         val iso = Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})").find(line)?.value
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+        // Grok's English UI uses the device's local time, e.g. September 25,
+        // 2026 at 7:39 AM. Do not silently treat this zone-less display as UTC.
+        val englishDate = Regex("(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{4}\\s+at\\s+\\d{1,2}:\\d{2}\\s*[AP]M", RegexOption.IGNORE_CASE).find(line)?.value
+        if (englishDate != null) {
+            val canonical = englishDate.replace(",", "").replace(Regex("\\s+"), " ")
+            runCatching {
+                LocalDateTime.parse(canonical, java.time.format.DateTimeFormatterBuilder()
+                    .parseCaseInsensitive().appendPattern("MMMM d uuuu 'at' h:mm a")
+                    .toFormatter(Locale.US).withResolverStyle(java.time.format.ResolverStyle.STRICT))
+                    .atZone(localZone).toInstant().toEpochMilli()
+            }.getOrNull()?.let { return it }
+        }
         koreanResetTime.find(line)?.let { match ->
             val localNow = Instant.ofEpochMilli(now).atZone(localZone)
             val date = runCatching {

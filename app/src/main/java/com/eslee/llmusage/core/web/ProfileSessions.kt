@@ -65,6 +65,12 @@ object ProfileSessions {
         boundViews[webView] = profileName
     }
 
+    @UiThread
+    fun destroy(webView: WebView) {
+        boundViews.remove(webView)
+        webView.destroy()
+    }
+
     /**
      * WebView keeps cookies in memory and writes them out on its own schedule, so a
      * sign-in that is followed by the WebView being destroyed can be lost and the

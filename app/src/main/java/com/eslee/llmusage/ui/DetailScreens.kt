@@ -98,13 +98,15 @@ internal fun DetailScreen(
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ProviderMark(account.providerId, size = 48.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(listOfNotNull(provider?.displayName, snapshot?.planName).joinToString(" · "), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.last_sync, account.lastSuccessAt?.let(::timeLabel) ?: stringResource(R.string.never)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    StatusChip(status)
+                  }
+                  StatusChip(status)
                 }
             }
             if (snapshot == null) item { Text(stringResource(R.string.no_snapshot), color = MaterialTheme.colorScheme.onSurfaceVariant) }
