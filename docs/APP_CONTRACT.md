@@ -1,5 +1,7 @@
 # App integration contract
 
+> Historical initial implementation contract. Several fields and sync/UI behaviors changed after v0.1.5. For current behavior read `HANDOFF_HOME.md` and the Kotlin implementations; do not restore removed UI settings from this document.
+
 All classes single app module package `com.eslee.llmusage`.
 
 `app.UsageApplication : Application` exposes `val graph: AppGraph`.

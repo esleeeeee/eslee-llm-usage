@@ -10,7 +10,7 @@ import java.time.ZonedDateTime
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.0"
+    const val VERSION = "1.2.1"
     private data class Label(val id: String, val title: String, val pattern: Regex)
     private fun label(id: String, title: String, pattern: String) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE))
     private val labels = mapOf(
@@ -24,7 +24,7 @@ object ConsumerUsageParser {
             label("session", "5-hour usage", "5[- ]hour(?:\\s+(?:usage|limit))?|five[- ]hour|5h(?:\\s+(?:usage|limit))?|세션 사용량|5시간(?: 사용)?(?: 한도)?"),
             label("weekly", "Weekly usage", "weekly usage(?: limit)?|weekly limit|주간 사용량(?: 한도)?|주간 한도|주간 사용 한도"),
             label("reserve", "Reserve usage", "gpt-reserve|reserve(?: usage| limit)?|spark"),
-            label("session", "Codex usage", "codex(?: usage)?|코덱스 사용량"),
+            label("session", "Codex usage", "^codex usage$|^코덱스 사용량$"),
             label("work", "Work usage", "work usage|작업 사용량"),
             label("model", "Model usage", "^(?:GPT[- ][\\w. -]+|o[134](?:[- ][\\w. -]+)?)(?:usage|limit|사용량|한도)?$")),
     )
@@ -138,10 +138,8 @@ object ConsumerUsageParser {
         }
         if (used != null || remaining != null) return PercentValues(used, remaining)
 
-        // With no used/remaining word anywhere, only a percentage sitting directly
-        // under the label is safe to claim; anything further down is page furniture.
-        val unlabeled = readings.filter { it.meaning == PercentMeaning.UNKNOWN }.minByOrNull { it.line }
-        return PercentValues(unlabeled?.takeIf { it.line <= 2 }?.value, null)
+        // Position identifies the quota, but cannot tell used from remaining.
+        return PercentValues(null, null)
     }
 
     private fun classifyPercent(lines: List<String>, lineIndex: Int, token: MatchResult): PercentMeaning {
@@ -183,8 +181,11 @@ object ConsumerUsageParser {
         for (at in keywords) {
             val around = sectionLines.subList(maxOf(0, at - 3), minOf(sectionLines.size, at + 4)).joinToString(" ")
             absoluteTime(around, now, localZone)?.let { return it }
-            val beside = sectionLines.subList(maxOf(0, at - 1), at + 1).joinToString(" ")
-            relativeTime(beside, now)?.let { return it }
+            val beside = sectionLines.subList(maxOf(0, at - 1), minOf(sectionLines.size, at + 2)).joinToString(" ")
+            val bankedExpiry = Regex("expir|만료|available|banked|재설정 가능", RegexOption.IGNORE_CASE)
+            if (!bankedExpiry.containsMatchIn(beside)) {
+                relativeTime(beside, now)?.let { return it }
+            }
         }
         return absoluteTime(sectionLines.joinToString(" "), now, localZone)
     }

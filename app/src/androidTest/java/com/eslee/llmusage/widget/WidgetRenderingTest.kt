@@ -1,6 +1,8 @@
 package com.eslee.llmusage.widget
 
 import android.view.View
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -12,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class WidgetRenderingTest {
@@ -35,11 +38,18 @@ class WidgetRenderingTest {
                 view.layout(0, 0, view.measuredWidth, view.measuredHeight)
                 assertTrue(view.measuredWidth > 0 && view.measuredHeight > 0)
                 val labels = labels(view)
-                val grid = WidgetLayoutResolver.resolve(width.toFloat(), height.toFloat(), slots.size)
+                val grid = WidgetLayoutResolver.resolve(width - if (width >= 120) 22f else 0f, height.toFloat(), slots.size)
                 assertTrue("Zero must remain distinct from unknown at $width x $height", labels.any { it == "0" })
                 // A one-ring widget shows only the first slot; the dash belongs to the third and fourth.
                 if (grid.capacity >= 3) assertTrue("Unknown must be a dash at $width x $height", labels.any { it == "—" })
                 if (grid.showCaption) assertTrue("Stale warning must survive layouts with a caption line", labels.any { it.contains("Stale") })
+                val bitmap = Bitmap.createBitmap(view.measuredWidth, view.measuredHeight, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(android.graphics.Color.rgb(230, 232, 237))
+                view.draw(canvas)
+                val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+                File(directory, "widget-${width}x${height}.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
             }
         }
     }

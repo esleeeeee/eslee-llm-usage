@@ -144,13 +144,22 @@ class ConsumerUsageParserTest {
         assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
     }
 
-    @Test fun anUnlabelledPercentIsTakenOnlyDirectlyUnderItsLabel() {
-        val near = (ConsumerUsageParser.parse("grok", "a", "주간 사용량\n42%\nSomething else\n7%", now, localZone) as ProviderResult.Success)
-            .snapshot.buckets.first { it.id == "weekly" }
-        assertEquals(42.0, near.usedPercent!!, 0.0)
+    @Test fun anUnlabelledPercentDoesNotEstablishUsedOrRemainingSemantics() {
+        for (page in listOf("주간 사용량\n42%", "주간 사용량\nfiller\nfiller\nfiller\n42%")) {
+            assertTrue(ConsumerUsageParser.parse("grok", "a", page, now, localZone) is ProviderResult.Failure)
+        }
+        val weekly = (ConsumerUsageParser.parse("grok", "a", "주간 사용량\n42%\nResets in 3 hours", now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.single()
+        assertNull(weekly.usedPercent)
+        assertNull(weekly.remainingPercent)
+        assertEquals(now + 3 * 3_600_000L, weekly.resetAt)
+    }
 
-        // Four lines below the label the number belongs to something else.
-        assertTrue(ConsumerUsageParser.parse("grok", "a", "주간 사용량\nfiller\nfiller\nfiller\n42%", now, localZone) is ProviderResult.Failure)
+    @Test fun codexHeadingDoesNotCreateAnUnrelatedSessionQuota() {
+        val page = "Codex\nCode review\n80% remaining\nWeekly limit\n31% remaining"
+        val buckets = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot.buckets
+        assertEquals(listOf("weekly"), buckets.map { it.id })
+        assertEquals(31.0, buckets.single().remainingPercent!!, 0.0)
     }
 
     /**
@@ -177,6 +186,15 @@ class ConsumerUsageParserTest {
         val session = (ConsumerUsageParser.parse("chatgpt", "a", split, now, localZone) as ProviderResult.Success)
             .snapshot.buckets.first { it.id == "session" }
         assertEquals(now + 3 * 3_600_000L, session.resetAt)
+    }
+
+    @Test fun aRelativeResetCanFollowItsLabel() {
+        for (reset in listOf("Resets in\n3 hours", "초기화\n3시간 후")) {
+            val page = "5-hour limit\n45% remaining\n$reset"
+            val session = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot.buckets.single()
+            assertEquals(now + 3 * 3_600_000L, session.resetAt)
+        }
+        assertNull(ConsumerUsageParser.parseReset("Banked reset available\nExpires in 1 day", now, localZone))
     }
 
     /**

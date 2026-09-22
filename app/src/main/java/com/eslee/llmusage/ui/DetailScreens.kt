@@ -112,11 +112,14 @@ internal fun DetailScreen(
             items(snapshot?.buckets.orEmpty(), key = { it.id }) { bucket ->
                 val primary = UsagePresentation.primary(snapshot!!, account.primaryBucketId)?.id == bucket.id
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        UsageGauge(UsageNormalizer.remainingPercent(bucket), painterResource(ProviderMarks.icon(account.providerId)), size = 72.dp, warning = status.warning)
-                        Box(Modifier.weight(1f)) { BucketContent(bucket, detailed = true) }
-                        // The primary quota is the one the widget shows and the history follows.
-                        FilterChip(selected = primary, onClick = { if (!primary) onChange(account.copy(primaryBucketId = bucket.id)) }, label = { Text(stringResource(R.string.primary)) })
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            UsageGauge(UsageNormalizer.remainingPercent(bucket), painterResource(ProviderMarks.icon(account.providerId)), size = 64.dp, warning = status.warning)
+                            Box(Modifier.weight(1f)) { BucketContent(bucket, detailed = true) }
+                        }
+                        // Keep the action below the content so it cannot squeeze the usage
+                        // down to a few characters on small screens or at large font sizes.
+                        FilterChip(modifier = Modifier.align(Alignment.End), selected = primary, onClick = { if (!primary) onChange(account.copy(primaryBucketId = bucket.id)) }, label = { Text(stringResource(R.string.primary)) })
                     }
                 }
             }

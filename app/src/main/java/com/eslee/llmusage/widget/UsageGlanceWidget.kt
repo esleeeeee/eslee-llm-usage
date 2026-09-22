@@ -57,7 +57,7 @@ import com.eslee.llmusage.ui.MainActivity
 import com.eslee.llmusage.ui.ProviderMarks
 import com.eslee.llmusage.ui.gauge.GaugeGeometry
 
-/** Set by the refresh button and cleared by the next data update, so the tap is seen to land. */
+/** Set by the refresh button and cleared when its full worker pass finishes. */
 private val REFRESHING = booleanPreferencesKey("refreshing")
 
 class UsageGlanceWidget : GlanceAppWidget() {
@@ -77,8 +77,16 @@ class UsageGlanceWidget : GlanceAppWidget() {
 class RefreshAllAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         updateAppWidgetState(context, glanceId) { it[REFRESHING] = true }
-        UsageGlanceWidget().update(context, glanceId)
-        SyncScheduler.refreshAll(context)
+        try {
+            SyncScheduler.refreshAll(context)
+            UsageGlanceWidget().update(context, glanceId)
+        } catch (error: Exception) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                updateAppWidgetState(context, glanceId) { it.remove(REFRESHING) }
+                UsageGlanceWidget().update(context, glanceId)
+            }
+            throw error
+        }
     }
 }
 
@@ -193,12 +201,16 @@ class UsageWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWi
 
 /** Redraws every widget from the database; called after each account is saved. */
 suspend fun updateWidgets(context: Context) {
-    val manager = GlanceAppWidgetManager(context)
     runCatching {
         val active = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, UsageWidgetReceiver::class.java)).toSet()
         WidgetConfigStore(context).prune(active)
     }
-    // Fresh data is what the refresh button was waiting for.
+    UsageGlanceWidget().updateAll(context)
+}
+
+/** Only the manually requested full pass owns the refresh indicator. */
+suspend fun finishWidgetRefresh(context: Context) {
+    val manager = GlanceAppWidgetManager(context)
     runCatching {
         manager.getGlanceIds(UsageGlanceWidget::class.java).forEach { id ->
             updateAppWidgetState(context, id) { it.remove(REFRESHING) }

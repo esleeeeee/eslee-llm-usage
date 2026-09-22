@@ -107,11 +107,11 @@ class UsageRepository(
         updateWidgets(context)
     }
 
-    suspend fun refreshAll(webOnly: Boolean? = null) = supervisorScope {
-        dao.accounts().map { json.decodeFromString<Account>(it.payload) }
+    suspend fun refreshAll(webOnly: Boolean? = null) {
+        val selected = dao.accounts().map { json.decodeFromString<Account>(it.payload) }
             .filter { it.enabled && registry.definition(it.providerId)?.capabilities?.supportsBackgroundSync == true }
             .filter { webOnly == null || (it.authMode == AuthMode.WEB_PROFILE) == webOnly }
-            .map { account -> async { try { refresh(account.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { } } }.awaitAll()
+        refreshAccountsIndependently(selected) { refresh(it.id) }
         cleanup()
     }
 
@@ -169,7 +169,9 @@ class UsageRepository(
         credentials.deleteSecret(id)
         account.profileName?.let { withContext(Dispatchers.Main) { ProfileSessions.delete(it) } }
         WorkManager.getInstance(context).cancelUniqueWork("sync_$id")
-        persist(account.copy(lastErrorCode = "AUTH_REQUIRED"))
+        persist(account.copy(lastErrorCode = "AUTH_REQUIRED", profileName = account.profileName?.let {
+            ProfileSessions.name(account.providerId, UUID.randomUUID().toString())
+        }))
         updateWidgets(context)
     }
 
@@ -197,7 +199,7 @@ class UsageRepository(
             WorkManager.getInstance(context).cancelUniqueWork("sync_$id")
             credentials.deleteSecret(id)
             account.profileName?.let { name ->
-                runCatching { withContext(Dispatchers.Main) { ProfileSessions.delete(name) } }
+                withContext(Dispatchers.Main) { ProfileSessions.delete(name) }
             }
             pruneWidgetsForAccount(id)
             database.withTransaction { dao.deleteAccount(id) }
@@ -240,4 +242,17 @@ class UsageRepository(
     suspend fun widgetConfigs() = dao.widgets().map { it.appWidgetId to it.payload }
     suspend fun deleteWidget(id: Int) = dao.deleteWidget(id)
     suspend fun widgetAccounts(id: Int) = dao.widgetAccounts(id)
+}
+
+/** Storage errors are reported only after every account has had a chance to finish. */
+internal suspend fun <T> refreshAccountsIndependently(accounts: List<T>, refresh: suspend (T) -> Unit) = supervisorScope {
+    val failures = accounts.map { account ->
+        async {
+            try { refresh(account); null }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { error }
+        }
+    }.awaitAll()
+    failures.firstOrNull { it != null }?.let { throw it }
+    Unit
 }

@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.work.*
 import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.settings.AppSettings
+import com.eslee.llmusage.widget.finishWidgetRefresh
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 object SyncScheduler {
@@ -32,14 +35,13 @@ object SyncScheduler {
     /** The widget's refresh button: every account, once, however many times it is tapped. */
     fun refreshAll(context: Context) {
         WorkManager.getInstance(context).enqueueUniqueWork("sync_all", ExistingWorkPolicy.KEEP,
+            // Run offline too, so a manual tap can report failure and release its indicator.
             OneTimeWorkRequestBuilder<SyncWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
     fun refresh(context: Context, id: String) {
         WorkManager.getInstance(context).enqueueUniqueWork("sync_$id", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SyncWorker>().setInputData(workDataOf("accountId" to id))
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
 }
@@ -47,14 +49,33 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val runStarted = System.currentTimeMillis()
         val repository = (applicationContext as UsageApplication).graph.repository
-        return try {
-            val id = inputData.getString("accountId")
-            if (id == null) repository.refreshAll(when(inputData.getString("scope")) { "web" -> true; "api" -> false; else -> null })
-            else repository.refresh(id)
-            val retry = if (id != null) repository.account(id)?.lastErrorCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT")
-                else repository.logs().any { it.startedAt >= runStarted && it.resultCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT") }
-            if (retry && runAttemptCount < 4) Result.retry() else Result.success()
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { if (runAttemptCount < 4) Result.retry() else Result.failure() }
+        return completeRefreshPass(
+            ownsIndicator = inputData.getString("accountId") == null && inputData.getString("scope") == null,
+            finish = { finishWidgetRefresh(applicationContext) },
+        ) {
+            try {
+                val id = inputData.getString("accountId")
+                if (id == null) repository.refreshAll(when(inputData.getString("scope")) { "web" -> true; "api" -> false; else -> null })
+                else repository.refresh(id)
+                val retry = if (id != null) repository.account(id)?.lastErrorCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT")
+                    else repository.logs().any { it.startedAt >= runStarted && it.resultCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT") }
+                if (retry && runAttemptCount < 4) Result.retry() else Result.success()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { if (runAttemptCount < 4) Result.retry() else Result.failure() }
+        }
+    }
+}
+
+/** Release the manual-refresh indicator even when a worker is cancelled or has no accounts. */
+internal suspend fun <T> completeRefreshPass(
+    ownsIndicator: Boolean,
+    finish: suspend () -> Unit,
+    collect: suspend () -> T,
+): T = try {
+    collect()
+} finally {
+    if (ownsIndicator) withContext(NonCancellable) {
+        // Widget host failures must not turn a successfully persisted collection into a retry.
+        try { finish() } catch (_: Exception) { }
     }
 }

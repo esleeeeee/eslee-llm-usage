@@ -1,5 +1,13 @@
 # Build report
 
+## v0.2.3 (2026-09-22, home PC)
+
+Local Windows Android emulator verification completed: 71 JVM tests, 20 Android tests, and 3 additional Korean UI/widget tests passed. Lint: 0 errors, 51 warnings. Debug, unsigned release, and instrumentation APKs built successfully. Profile deletion queue: 6 before process restart, 0 after restart.
+
+Detailed environment, scope, screenshots, reproducible commands, and real-account limitations: [QA_V023.md](docs/QA_V023.md). Continuing on another machine: [HANDOFF_HOME.md](docs/HANDOFF_HOME.md).
+
+The sections below are historical results, not the current support status.
+
 Status: v0.1.5 published. Unit/lint/signed APK builds and both Android WebView integration tests passed in [CI 34564611921](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/34564611921).
 
 ## v0.1.5 (2026-09-11)
