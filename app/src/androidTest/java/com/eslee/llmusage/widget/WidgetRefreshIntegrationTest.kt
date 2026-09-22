@@ -7,6 +7,11 @@ import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.graphics.Bitmap
+import android.util.Log
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import java.io.File
 import android.os.Bundle
 import android.os.SystemClock
 import android.graphics.Rect
@@ -64,6 +69,8 @@ class WidgetRefreshIntegrationTest {
         var scenario: ActivityScenario<MainActivity>? = null
         var launchMonitor: Instrumentation.ActivityMonitor? = null
         lateinit var hostView: AppWidgetHostView
+        val touchTrace = mutableListOf<String>()
+        var hostCreated = false
         try {
             graph.settings.update(previous.copy(intervalMinutes = 0))
             SyncScheduler.schedule(context, previous.copy(intervalMinutes = 0))
@@ -86,6 +93,7 @@ class WidgetRefreshIntegrationTest {
             scenario.onActivity { activity ->
                 host.startListening()
                 hostView = host.createView(activity, allocated, info)
+                hostCreated = true
                 hostView.updateAppWidgetSize(Bundle(), 220, 150, 220, 150)
                 // View posts PerformClick after ACTION_UP. A detached host keeps that
                 // runnable queued forever, so it cannot exercise the PendingIntent.
@@ -106,6 +114,10 @@ class WidgetRefreshIntegrationTest {
             repeat(2) {
                 val snapshotsBefore = accountIds.associateWith { repository.latest(it)!!.snapshotId }
                 val workBefore = workInfos().map { it.id }.toSet()
+                var stableTarget: View? = null
+                var stableBounds: Rect? = null
+                var stableSince = SystemClock.uptimeMillis()
+                val deliveredActions = mutableListOf<Int>()
                 withTimeout(15_000) {
                     while (true) {
                         var touchPoint: Pair<Float, Float>? = null
@@ -115,7 +127,9 @@ class WidgetRefreshIntegrationTest {
                             val icon = descendants(hostView).firstOrNull {
                                 it.contentDescription == context.getString(R.string.widget_refresh)
                             }
-                            if (icon != null && hostView.isLaidOut && !hostView.isLayoutRequested) {
+                            val imeVisible = ViewCompat.getRootWindowInsets(hostView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                            if (icon != null && hostView.isShown && hostView.hasWindowFocus() &&
+                                hostView.isLaidOut && !hostView.isLayoutRequested && !imeVisible) {
                                 var target: View = icon
                                 while (!target.isClickable && target.parent is View) target = target.parent as View
                                 assertTrue("Refresh target must include 48dp of touch space", target.width >= (48 * density).toInt())
@@ -124,7 +138,29 @@ class WidgetRefreshIntegrationTest {
                                 hostView.offsetDescendantRectToMyCoords(target, bounds)
                                 val origin = IntArray(2)
                                 hostView.getLocationOnScreen(origin)
-                                touchPoint = (origin[0] + bounds.left + 3 * density) to (origin[1] + bounds.top + 3 * density)
+                                bounds.offset(origin[0], origin[1])
+                                val visible = Rect()
+                                val fullyVisible = target.getGlobalVisibleRect(visible) && visible.width() == target.width && visible.height() == target.height
+                                val now = SystemClock.uptimeMillis()
+                                if (!fullyVisible || stableTarget !== target || stableBounds != bounds) {
+                                    stableTarget = target
+                                    stableBounds = Rect(bounds)
+                                    stableSince = now
+                                } else if (now - stableSince >= 500) {
+                                    // Binding/configuration can replace RemoteViews after the first
+                                    // layout. Wait for the same visible target to settle before input.
+                                    target.setOnTouchListener { _, event ->
+                                        deliveredActions += event.actionMasked
+                                        touchTrace += "target ${MotionEvent.actionToString(event.actionMasked)} at ${event.x},${event.y}"
+                                        false // Observe delivery; keep the installed PendingIntent click.
+                                    }
+                                    touchPoint = (bounds.left + 3 * density) to (bounds.top + 3 * density)
+                                    touchTrace += "tap ${it + 1}: bounds=$bounds point=$touchPoint focus=${hostView.hasWindowFocus()}"
+                                    Log.i("WidgetTouchTest", touchTrace.last())
+                                }
+                            } else {
+                                stableTarget = null
+                                stableSince = SystemClock.uptimeMillis()
                             }
                         }
                         touchPoint?.let { (x, y) ->
@@ -141,6 +177,12 @@ class WidgetRefreshIntegrationTest {
                         if (touchPoint != null) break
                         delay(100)
                     }
+                }
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    assertEquals("Refresh target did not receive a complete touch: $touchTrace",
+                        listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP), deliveredActions.toList())
+                    stableTarget?.setOnTouchListener(null)
                 }
                 withTimeout(60_000) {
                     while (true) {
@@ -163,6 +205,27 @@ class WidgetRefreshIntegrationTest {
                 assertFalse("Completed worker left widget refreshing", state[booleanPreferencesKey("refreshing")] == true)
                 assertEquals(listOf("62", "62"), WidgetStateMapper.slots(context, WidgetConfigStore(context).get(allocated)).map { it.number })
             }
+        } catch (failure: Throwable) {
+            // Capture before ActivityScenario/host cleanup removes the evidence.
+            runCatching {
+                val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+                instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                    try { File(directory, "widget-refresh-failure.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+                    finally { bitmap.recycle() }
+                }
+                val views = StringBuilder()
+                instrumentation.runOnMainSync {
+                    if (hostCreated) descendants(hostView).forEach { view ->
+                        val location = IntArray(2)
+                        view.getLocationOnScreen(location)
+                        views.appendLine("${view.javaClass.simpleName} id=${view.id} at=${location.toList()} size=${view.width}x${view.height} shown=${view.isShown} focus=${view.hasWindowFocus()} clickable=${view.isClickable} description=${view.contentDescription}")
+                    }
+                }
+                val details = "failure=$failure\n${touchTrace.joinToString("\n")}\nwork=${workInfos().map { "${it.id}:${it.state}" }}\n$views"
+                File(directory, "widget-refresh-failure.txt").writeText(details)
+                Log.e("WidgetTouchTest", details)
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
         } finally {
             launchMonitor?.let(instrumentation::removeMonitor)
             scenario?.close()
