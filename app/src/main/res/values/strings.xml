@@ -32,6 +32,7 @@
     <string name="bucket_session">5-hour</string>
     <string name="bucket_weekly">Weekly</string>
     <string name="bucket_resets">Banked resets</string>
+    <string name="quota_title">%1$s limit</string>
     <string name="never">Never</string>
     <string name="normal">Up to date</string>
     <string name="stale">Stale data</string>

@@ -52,16 +52,21 @@ object ConsumerUsageParser {
         val lines = visibleText.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
         val matches = lines.mapIndexedNotNull { index, line -> dictionary.firstOrNull { it.pattern.containsMatchIn(line) }?.let { index to it } }
         val buckets = matches.mapIndexedNotNull { index, (start, label) ->
-            val end = minOf(matches.getOrNull(index + 1)?.first ?: lines.size, start + 6)
-            val sectionLines = lines.subList(start, end).takeWhile {
-                !Regex("Extra Usage Credits|upgrade|special offer|save \\d|업그레이드|할인", RegexOption.IGNORE_CASE).containsMatchIn(it)
-            }
+            val nextLabel = matches.getOrNull(index + 1)?.first ?: lines.size
+            val stop = Regex("Extra Usage Credits|upgrade|special offer|save \\d|업그레이드|할인", RegexOption.IGNORE_CASE)
+            val end = minOf(nextLabel, start + 6)
+            val sectionLines = lines.subList(start, end).takeWhile { !stop.containsMatchIn(it) }
             val section = sectionLines.joinToString("\n")
             val percentValues = parsePercentValues(sectionLines)
             val rawRatio = ratio.find(section)
             val used = rawRatio?.groupValues?.get(1)?.replace(",", "")?.toDoubleOrNull()
             val limit = rawRatio?.groupValues?.get(2)?.replace(",", "")?.toDoubleOrNull()
-            val resetAt = parseReset(section, fetchedAt, localZone)
+            // The structural capture gives every node its own line, and a progress
+            // bar's aria value or a CSS-drawn figure each take one, so the reset
+            // time can sit well past the six lines the figures are read from. It
+            // is looked for further down, still stopping at the next quota.
+            val resetWindow = lines.subList(start, minOf(nextLabel, start + 24)).takeWhile { !stop.containsMatchIn(it) }
+            val resetAt = parseReset(section, fetchedAt, localZone) ?: parseReset(resetWindow.joinToString("\n"), fetchedAt, localZone)
             if (percentValues.used == null && percentValues.remaining == null && used == null && resetAt == null) null
             else UsageNormalizer.normalize(UsageBucket(label.id, if (label.id == "model") lines[start] else label.title,
                 used = used, limit = limit, unit = if (rawRatio != null) UsageUnit.REQUESTS else UsageUnit.PERCENT,
@@ -168,13 +173,23 @@ object ConsumerUsageParser {
 
     internal fun parseReset(section: String, now: Long, localZone: ZoneId = ZoneId.systemDefault()): Long? {
         val sectionLines = section.lines()
-        val at = sectionLines.indexOfFirst { resetLabel.containsMatchIn(it) }
-        if (at < 0) return null
+        val keywords = sectionLines.indices.filter { resetLabel.containsMatchIn(sectionLines[it]) }
+        if (keywords.isEmpty()) return null
         // A page styles the moment and the word differently, so they are separate
-        // nodes: "2026년 9월 25일 오후 4:39" beside "초기화". The structural capture
-        // keeps one node per line, which left the word alone on its line with no
-        // time to read. Take the neighbours with it.
-        val line = sectionLines.subList(maxOf(0, at - 1), minOf(sectionLines.size, at + 2)).joinToString(" ")
+        // nodes: "2026년 9월 25일 오후 4:39" beside "초기화", sometimes with a hidden
+        // figure between them. An absolute time is trusted a few lines either
+        // side of the word; a duration only right beside it, because "1일 후 만료"
+        // under "재설정 가능" is a banked reset's expiry, not this quota's reset.
+        for (at in keywords) {
+            val around = sectionLines.subList(maxOf(0, at - 3), minOf(sectionLines.size, at + 4)).joinToString(" ")
+            absoluteTime(around, now, localZone)?.let { return it }
+            val beside = sectionLines.subList(maxOf(0, at - 1), at + 1).joinToString(" ")
+            relativeTime(beside, now)?.let { return it }
+        }
+        return absoluteTime(sectionLines.joinToString(" "), now, localZone)
+    }
+
+    private fun absoluteTime(line: String, now: Long, localZone: ZoneId): Long? {
         val iso = Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})").find(line)?.value
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
         koreanResetTime.find(line)?.let { match ->
@@ -208,6 +223,10 @@ object ConsumerUsageParser {
             val stamp = "${date}T$hm:$sec${if (zone.startsWith("+") || zone.startsWith("-") || zone == "Z") zone else "Z"}"
             runCatching { OffsetDateTime.parse(stamp).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
         }
+        return null
+    }
+
+    private fun relativeTime(line: String, now: Long): Long? {
         if (!Regex("\\bin\\b|후", RegexOption.IGNORE_CASE).containsMatchIn(line)) return null
         val hours = Regex("(\\d+)\\s*(?:hours?|hrs?|h\\b|시간)", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0
         val minutes = Regex("(\\d+)\\s*(?:minutes?|mins?|m\\b|분)", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0

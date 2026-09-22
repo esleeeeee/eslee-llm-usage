@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -106,18 +107,13 @@ internal fun DetailScreen(
                     StatusChip(status)
                 }
             }
-            val gauges = gaugeBuckets(snapshot, account.primaryBucketId)
-            if (gauges.isNotEmpty()) item {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
-                    gauges.forEach { BucketGauge(it, account.providerId, size = 104.dp, warning = status.warning) }
-                }
-            }
             if (snapshot == null) item { Text(stringResource(R.string.no_snapshot), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             else item { SectionTitle(R.string.usage) }
             items(snapshot?.buckets.orEmpty(), key = { it.id }) { bucket ->
                 val primary = UsagePresentation.primary(snapshot!!, account.primaryBucketId)?.id == bucket.id
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        UsageGauge(UsageNormalizer.remainingPercent(bucket), painterResource(ProviderMarks.icon(account.providerId)), size = 72.dp, warning = status.warning)
                         Box(Modifier.weight(1f)) { BucketContent(bucket, detailed = true) }
                         // The primary quota is the one the widget shows and the history follows.
                         FilterChip(selected = primary, onClick = { if (!primary) onChange(account.copy(primaryBucketId = bucket.id)) }, label = { Text(stringResource(R.string.primary)) })

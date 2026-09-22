@@ -1,8 +1,6 @@
 package com.eslee.llmusage.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -10,7 +8,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -138,18 +135,36 @@ internal fun StatusChip(info: StatusInfo, modifier: Modifier = Modifier) {
     }
 }
 
-/** Ring, short window name and countdown: the same three things the widget shows for a quota. */
 @Composable
-internal fun BucketGauge(bucket: UsageBucket, providerId: String?, modifier: Modifier = Modifier, size: Dp = 80.dp, warning: Boolean = false) {
+internal fun quotaTitle(bucket: UsageBucket): String =
+    stringResource(R.string.quota_title, UsageLabels.bucketShort(LocalContext.current, bucket))
+
+/**
+ * One quota as a row: the ring on the left, and on the right its name, the
+ * share left in large type, then what is used and when it resets. Rows stack,
+ * so a card grows downwards instead of squeezing rings side by side.
+ */
+@Composable
+internal fun BucketRow(bucket: UsageBucket, providerId: String?, modifier: Modifier = Modifier, ringSize: Dp = 64.dp, warning: Boolean = false) {
     val context = LocalContext.current
-    val remaining = UsageNormalizer.remainingPercent(bucket)
-    Column(modifier.width(size + 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        UsageGauge(remaining, painterResource(ProviderMarks.icon(providerId)), size = size, warning = warning)
-        Text(UsageLabels.bucketShort(context, bucket), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
-            UsageLabels.resetCompact(context, bucket.resetAt) ?: if (remaining == null) stringResource(R.string.unknown) else "",
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-        )
+    val normalized = UsageNormalizer.normalize(bucket)
+    val remaining = normalized.remainingPercent
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        UsageGauge(remaining, painterResource(ProviderMarks.icon(providerId)), size = ringSize, warning = warning)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(quotaTitle(bucket), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                remaining?.let { stringResource(R.string.remaining_percent, it.roundToInt()) } ?: stringResource(R.string.unknown),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            )
+            Text(
+                listOfNotNull(
+                    normalized.usedPercent?.let { stringResource(R.string.used_percent, it.roundToInt()) },
+                    UsageLabels.resetRelative(context, bucket.resetAt) ?: stringResource(R.string.reset_unknown),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -160,7 +175,7 @@ internal fun BucketContent(bucket: UsageBucket, detailed: Boolean = false) {
     val normalized = UsageNormalizer.normalize(bucket)
     val number = NumberFormat.getNumberInstance().apply { maximumFractionDigits = 1 }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(bucket.label, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(quotaTitle(bucket), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         val remaining = normalized.remainingPercent
         val used = normalized.usedPercent
         Text(
@@ -202,24 +217,20 @@ internal fun AccountCard(overview: AccountOverview, providerName: String, staleH
     val snapshot = overview.snapshot
     val status = statusInfo(account, snapshot, staleHours)
     Card(onClick = onOpen, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderMark(account.providerId)
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(account.alias, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(providerName, snapshot?.planName).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 StatusChip(status)
             }
             val gauges = gaugeBuckets(snapshot, account.primaryBucketId)
-            if (gauges.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    gauges.forEach { BucketGauge(it, account.providerId, warning = status.warning) }
-                }
-            } else if (snapshot != null && snapshot.buckets.isNotEmpty()) {
-                snapshot.buckets.take(3).forEach { BucketContent(it) }
-            } else {
-                Text(stringResource(R.string.no_snapshot), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when {
+                gauges.isNotEmpty() -> gauges.forEach { BucketRow(it, account.providerId, warning = status.warning) }
+                snapshot != null && snapshot.buckets.isNotEmpty() -> snapshot.buckets.take(3).forEach { BucketContent(it) }
+                else -> Text(stringResource(R.string.no_snapshot), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(

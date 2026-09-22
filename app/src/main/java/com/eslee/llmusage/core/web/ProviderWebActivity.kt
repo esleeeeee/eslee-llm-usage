@@ -310,7 +310,7 @@ class ProviderWebActivity : ComponentActivity() {
         val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
         val anchor = lines.indexOfFirst { Regex("한도|limit|usage|사용량", RegexOption.IGNORE_CASE).containsMatchIn(it) }
         if (anchor < 0) return "no usage label among ${lines.size} lines"
-        return lines.subList(anchor, minOf(lines.size, anchor + 8)).joinToString(" | ")
+        return lines.subList(anchor, minOf(lines.size, anchor + 16)).joinToString(" | ")
     }
 
     private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {

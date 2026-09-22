@@ -34,6 +34,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
@@ -128,16 +129,22 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
                 maxLines = 1,
             )
         }
-        if (grid.showTitle) Text(
-            slot.title,
-            style = TextStyle(color = palette.foreground, fontSize = titleSize.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
-            maxLines = 1,
-        )
-        if (grid.showCaption && slot.caption != null) Text(
-            slot.caption,
-            style = TextStyle(color = if (slot.warning) palette.warning else palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
-            maxLines = 1,
-        )
+        if (grid.showTitle) {
+            Spacer(GlanceModifier.height(WidgetLayoutResolver.RING_GAP.dp))
+            Text(
+                slot.title,
+                style = TextStyle(color = palette.foreground, fontSize = titleSize.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
+                maxLines = 1,
+            )
+        }
+        if (grid.showCaption && slot.caption != null) {
+            Spacer(GlanceModifier.height(2.dp))
+            Text(
+                slot.caption,
+                style = TextStyle(color = if (slot.warning) palette.warning else palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
+                maxLines = 1,
+            )
+        }
     }
 }
 

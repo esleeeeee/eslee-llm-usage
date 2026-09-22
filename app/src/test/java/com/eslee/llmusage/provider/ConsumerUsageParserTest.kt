@@ -178,4 +178,44 @@ class ConsumerUsageParserTest {
             .snapshot.buckets.first { it.id == "session" }
         assertEquals(now + 3 * 3_600_000L, session.resetAt)
     }
+
+    /**
+     * Reported on v0.2.0: the Grok ring shows its value but no reset. The
+     * structural capture gives a progress bar's aria value and a CSS-drawn
+     * figure their own lines, which pushes "초기화" past the six lines a quota's
+     * figures are read from, so the time was never in the text the reset
+     * parser saw.
+     */
+    @Test fun aResetPushedPastTheFigureWindowByHiddenNodesIsStillFound() {
+        val rich = """
+            매주 SuperGrok 한도
+            0
+            0%
+            0% 사용됨
+            0
+            중고
+            2026년 9월 25일 오후 4:39
+            초기화
+            추가 사용 크레딧
+            US$0.00
+        """.trimIndent()
+        val weekly = (ConsumerUsageParser.parse("grok", "a", rich, now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(0.0, weekly.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
+    }
+
+    @Test fun aBankedResetExpiryIsNotMistakenForTheQuotaReset() {
+        val text = """
+            매주 SuperGrok 한도
+            0%
+            중고
+            사용 한도 재설정
+            재설정 가능
+            1일 후 만료
+        """.trimIndent()
+        val weekly = (ConsumerUsageParser.parse("grok", "a", text, now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(null, weekly.resetAt)
+    }
 }

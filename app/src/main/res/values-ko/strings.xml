@@ -32,6 +32,7 @@
     <string name="bucket_session">5시간</string>
     <string name="bucket_weekly">주간</string>
     <string name="bucket_resets">적립 리셋</string>
+    <string name="quota_title">%1$s 한도</string>
     <string name="never">없음</string>
     <string name="normal">최신</string>
     <string name="stale">오래된 데이터</string>
