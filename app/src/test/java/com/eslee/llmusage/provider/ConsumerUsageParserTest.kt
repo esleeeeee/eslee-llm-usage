@@ -29,6 +29,13 @@ class ConsumerUsageParserTest {
         assertTrue(result is ProviderResult.Failure)
     }
 
+    @Test fun codexAbbreviatedEnglishResetDoesNotUseBankedExpiry() {
+        val text = "Weekly usage limit\n38%\nremaining\nResets Sep 27, 2026 3:10 AM\nUsage limit resets\nAvailable 2\nFull reset\nExpires Oct 4, 1:58 AM"
+        val result = ConsumerUsageParser.parse("chatgpt", "account", text, now, ZoneId.of("UTC")) as ProviderResult.Success
+        assertEquals(38.0, result.snapshot.buckets.single().remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-27T03:10:00Z").toEpochMilli(), result.snapshot.buckets.single().resetAt)
+    }
+
     @Test fun grokWeeklyBreakdownResetAndCredits() {
         val snapshot = (parsed("grok", "usage_normal") as ProviderResult.Success).snapshot
         assertEquals(42.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)

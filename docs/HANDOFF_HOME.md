@@ -1,5 +1,14 @@
 # 집 컴퓨터 인수인계 — 2026-09-22
 
+## 현재 작업: v0.2.4
+
+사용자가 로그인 재시작, Grok 수집 실패, 위젯 새로고침 시 앱 실행을 보고했다. 새 프로필 재시작과 계정별 수집 취소, 분리된 숫자/% 및 영문 reset 파싱, 48dp 위젯 터치 영역을 수정했다. 실제 계정이 있는 Pixel Launcher에서 위젯 터치 → 수집 → 표시 갱신을 검증했다. 자세한 증거는 `QA_V024.md`.
+
+- `emulator-5554` / `eslee_usage_api35`: 사용자가 로그인한 실계정 보유. 서명된 release 업데이트만 설치한다. uninstall, clear data, synthetic 계정 삭제 테스트 금지.
+- `emulator-5556` / `eslee_qa_api35`: 자동 테스트 전용. debug/androidTest APK 설치 및 전체 테스트는 여기에 실행한다.
+- PC 키보드 활성화, host GPU(RTX 4070 Ti), 720×1600/280dpi. 사용자 조작용 AVD는 RAM 4096MB, 테스트용은 3072MB.
+- 단위 테스트 75개, Android 테스트 23개. 위젯 테스트는 실제 창에 부착한 호스트의 화면 좌표로 touchscreen 이벤트를 주입한다. 함수 직접 호출이나 미부착 뷰의 dispatchTouchEvent는 실제 클릭을 검증하지 못했다.
+- 실제 계정 캡처와 로그는 Git-ignored artifacts/live-v024에만 보관한다.
 ## 프로젝트와 사용자의 의도
 
 회사 Claude Code에서 개발하던 Android 앱을 집 Codex에서 계속 개발한다. 회사 로컬 파일을 수동으로 옮기지 않는 것이 조건이다. 원격은 `https://github.com/esleeeeee/eslee-llm-usage`. 인수 당시 main은 `739a3ab`, 배포본은 v0.2.2였다. 이번 작업은 앱의 오류를 수정하고 이 PC의 실제 Android 에뮬레이터로 검증하는 것이다.
@@ -45,7 +54,7 @@ PowerShell에서:
 
 ```powershell
 $env:ANDROID_HOME = "$env:USERPROFILE\.local\android-dev\sdk"
-& "$env:ANDROID_HOME\emulator\emulator.exe" -avd eslee_usage_api35 -no-audio -no-snapshot -gpu swiftshader_indirect -memory 3072 -cores 4
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd eslee_usage_api35 -no-audio -no-snapshot -gpu host -memory 4096 -cores 4
 ```
 
 테스트 로그/PNG는 ignored `artifacts/`와 `app/build/reports`에 저장된다. 공유 가능한 검증 요약/선별 캡처는 `docs/QA_V023.md`에 기록한다.

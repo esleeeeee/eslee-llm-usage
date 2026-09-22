@@ -144,7 +144,7 @@ class LoginRestartTest {
                     assertEquals(freshProfile, profile.name)
                     assertNull(profile.cookieManager.getCookie("https://restart.example"))
                     assertEquals("other_session=1", WebViewCompat.getProfile(requireNotNull(otherWeb)).cookieManager.getCookie("https://restart.example"))
-                    assertEquals(app.graph.registry.definition("chatgpt")?.loginUrl, replacement?.originalUrl)
+                    assertTrue(activity.intent.getBooleanExtra("newAccount", false))
                     replacement?.stopLoading()
                 }
             }

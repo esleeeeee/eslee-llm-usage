@@ -200,15 +200,17 @@ object ConsumerUsageParser {
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
         // Grok's English UI uses the device's local time, e.g. September 25,
         // 2026 at 7:39 AM. Do not silently treat this zone-less display as UTC.
-        val englishDate = Regex("(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{4}\\s+at\\s+\\d{1,2}:\\d{2}\\s*[AP]M", RegexOption.IGNORE_CASE).find(line)?.value
+        val englishDate = Regex("\\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\s+\\d{1,2},?\\s+\\d{4}\\s+(?:at\\s+)?\\d{1,2}:\\d{2}\\s+[AP]M", RegexOption.IGNORE_CASE).find(line)?.value
         if (englishDate != null) {
-            val canonical = englishDate.replace(",", "").replace(Regex("\\s+"), " ")
-            runCatching {
-                LocalDateTime.parse(canonical, java.time.format.DateTimeFormatterBuilder()
-                    .parseCaseInsensitive().appendPattern("MMMM d uuuu 'at' h:mm a")
-                    .toFormatter(Locale.US).withResolverStyle(java.time.format.ResolverStyle.STRICT))
-                    .atZone(localZone).toInstant().toEpochMilli()
-            }.getOrNull()?.let { return it }
+            val canonical = englishDate.replace(",", "").replace(Regex("\\s+at\\s+", RegexOption.IGNORE_CASE), " ").replace(Regex("\\s+"), " ")
+            for (month in listOf("MMMM", "MMM")) {
+                runCatching {
+                    LocalDateTime.parse(canonical, java.time.format.DateTimeFormatterBuilder()
+                        .parseCaseInsensitive().appendPattern("$month d uuuu h:mm a")
+                        .toFormatter(Locale.US).withResolverStyle(java.time.format.ResolverStyle.STRICT))
+                        .atZone(localZone).toInstant().toEpochMilli()
+                }.getOrNull()?.let { return it }
+            }
         }
         koreanResetTime.find(line)?.let { match ->
             val localNow = Instant.ofEpochMilli(now).atZone(localZone)

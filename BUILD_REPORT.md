@@ -1,5 +1,10 @@
 # Build report
 
+## v0.2.4 (2026-09-22)
+
+Fixes fresh-profile login retries, account-only cancellation during session reset, Grok split DOM percentages, English reset timestamps, and widget refresh hit targets. Verified with real Codex/Grok sessions and actual Pixel Launcher taps on the local API35 emulator. Existing signed installation was updated in place.
+
+Local verification: 75 JVM tests and 23 Android tests pass; lint 0 errors / 51 warnings. See [QA_V024.md](docs/QA_V024.md) for evidence and scope. Older reports below are historical.
 ## v0.2.3 (2026-09-22, home PC)
 
 Local Windows Android emulator verification completed: 71 JVM tests, 20 Android tests, and 3 additional Korean UI/widget tests passed. Lint: 0 errors, 51 warnings. Debug, unsigned release, and instrumentation APKs built successfully. Profile deletion queue: 6 before process restart, 0 after restart.

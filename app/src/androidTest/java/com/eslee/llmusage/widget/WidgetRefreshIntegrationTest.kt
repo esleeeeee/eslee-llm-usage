@@ -10,6 +10,8 @@ import android.content.ComponentName
 import android.os.Bundle
 import android.os.SystemClock
 import android.graphics.Rect
+import android.view.Gravity
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -89,7 +91,7 @@ class WidgetRefreshIntegrationTest {
                 // runnable queued forever, so it cannot exercise the PendingIntent.
                 val density = activity.resources.displayMetrics.density
                 activity.setContentView(FrameLayout(activity).apply {
-                    addView(hostView, FrameLayout.LayoutParams((220 * density).toInt(), (150 * density).toInt()))
+                    addView(hostView, FrameLayout.LayoutParams((220 * density).toInt(), (150 * density).toInt(), Gravity.CENTER))
                 })
             }
             launchMonitor = instrumentation.addMonitor(MainActivity::class.java.name,
@@ -106,7 +108,7 @@ class WidgetRefreshIntegrationTest {
                 val workBefore = workInfos().map { it.id }.toSet()
                 withTimeout(15_000) {
                     while (true) {
-                        var clicked = false
+                        var touchPoint: Pair<Float, Float>? = null
                         instrumentation.runOnMainSync {
                             val density = context.resources.displayMetrics.density
                             assertTrue("Widget host must be attached for posted clicks to execute", hostView.isAttachedToWindow)
@@ -120,18 +122,23 @@ class WidgetRefreshIntegrationTest {
                                 assertTrue("Refresh target must include 48dp of touch space", target.height >= (48 * density).toInt())
                                 val bounds = Rect(0, 0, target.width, target.height)
                                 hostView.offsetDescendantRectToMyCoords(target, bounds)
-                                val x = bounds.left + 3 * density
-                                val y = bounds.top + 3 * density
-                                val now = SystemClock.uptimeMillis()
-                                listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
-                                    val event = MotionEvent.obtain(now, now + if (action == MotionEvent.ACTION_UP) 50 else 0, action, x, y, 0)
-                                    try { assertTrue("Host did not handle refresh touch", hostView.dispatchTouchEvent(event)) }
-                                    finally { event.recycle() }
-                                }
-                                clicked = true
+                                val origin = IntArray(2)
+                                hostView.getLocationOnScreen(origin)
+                                touchPoint = (origin[0] + bounds.left + 3 * density) to (origin[1] + bounds.top + 3 * density)
                             }
                         }
-                        if (clicked) break
+                        touchPoint?.let { (x, y) ->
+                            val now = SystemClock.uptimeMillis()
+                            listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
+                                val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, x, y, 0).apply {
+                                    source = InputDevice.SOURCE_TOUCHSCREEN
+                                }
+                                try { assertTrue("System rejected widget touch", instrumentation.uiAutomation.injectInputEvent(event, true)) }
+                                finally { event.recycle() }
+                                if (action == MotionEvent.ACTION_DOWN) delay(50)
+                            }
+                        }
+                        if (touchPoint != null) break
                         delay(100)
                     }
                 }
