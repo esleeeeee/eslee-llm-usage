@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WebNavigationPolicyTest {
+    @Test fun grokCookieCallbackIsAllowedWithoutTrustingOtherContentHosts() {
+        val hosts = requireNotNull(com.eslee.llmusage.provider.ProviderRegistry(false).definition("grok")).allowedHosts
+        assertFalse(WebNavigationPolicy.blocks("https://auth.grokusercontent.com/set-cookie", hosts, mainFrame = true))
+        listOf(
+            "https://grokusercontent.com/set-cookie",
+            "https://other.grokusercontent.com/set-cookie",
+            "https://auth.grokusercontent.com.evil.example/set-cookie",
+            "http://auth.grokusercontent.com/set-cookie",
+        ).forEach { assertTrue(it, WebNavigationPolicy.blocks(it, hosts, mainFrame = true)) }
+    }
+
     @Test fun validatesExactHttpsOrigin() {
         val hosts = setOf("claude.ai")
         assertTrue(WebNavigationPolicy.allows("https://claude.ai/settings/usage",hosts))

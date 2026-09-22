@@ -57,7 +57,7 @@ import com.eslee.llmusage.ui.MainActivity
 import com.eslee.llmusage.ui.ProviderMarks
 import com.eslee.llmusage.ui.gauge.GaugeGeometry
 
-/** Set by the refresh button and cleared by the next data update, so the tap is seen to land. */
+/** Set by the refresh button and cleared when its full worker pass finishes. */
 private val REFRESHING = booleanPreferencesKey("refreshing")
 
 class UsageGlanceWidget : GlanceAppWidget() {
@@ -77,8 +77,16 @@ class UsageGlanceWidget : GlanceAppWidget() {
 class RefreshAllAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         updateAppWidgetState(context, glanceId) { it[REFRESHING] = true }
-        UsageGlanceWidget().update(context, glanceId)
-        SyncScheduler.refreshAll(context)
+        try {
+            SyncScheduler.refreshAll(context)
+            UsageGlanceWidget().update(context, glanceId)
+        } catch (error: Exception) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                updateAppWidgetState(context, glanceId) { it.remove(REFRESHING) }
+                UsageGlanceWidget().update(context, glanceId)
+            }
+            throw error
+        }
     }
 }
 
@@ -95,7 +103,7 @@ private class Palette(dark: Boolean, background: WidgetBackground) {
 }
 
 /** Width kept free on the right for the refresh button, so it never sits on a ring. */
-private const val REFRESH_COLUMN = 22f
+private const val REFRESH_COLUMN = 48f
 
 /**
  * Rings in a row, like the phone's own battery widget: the ring on top, the
@@ -112,7 +120,7 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
     val palette = Palette(config.theme == WidgetTheme.DARK || (config.theme == WidgetTheme.SYSTEM && night), config.background)
     var panel = GlanceModifier.fillMaxSize()
     palette.panel?.let { panel = panel.background(it).cornerRadius(20.dp) }
-    panel = panel.padding(WidgetLayoutResolver.PADDING.dp).clickable(actionStartActivity(Intent(context, MainActivity::class.java)))
+    panel = panel.padding(WidgetLayoutResolver.PADDING.dp)
     Row(panel, verticalAlignment = Alignment.CenterVertically) {
         Box(GlanceModifier.defaultWeight().fillMaxHeight(), contentAlignment = Alignment.Center) {
             if (slots.isEmpty()) {
@@ -132,12 +140,16 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
             }
         }
         if (showRefresh) Column(GlanceModifier.width(REFRESH_COLUMN.dp).fillMaxHeight(), verticalAlignment = Alignment.Top, horizontalAlignment = Alignment.End) {
-            Image(
-                ImageProvider(R.drawable.ic_refresh),
-                context.getString(if (refreshing) R.string.widget_refreshing else R.string.widget_refresh),
-                GlanceModifier.size(18.dp).clickable(actionRunCallback<RefreshAllAction>()),
-                colorFilter = ColorFilter.tint(if (refreshing) palette.warning else palette.muted),
-            )
+            // The icon is small, but its whole touch target belongs to refresh. A root
+            // activity click used to turn near-icon taps into an unexpected app launch.
+            Box(GlanceModifier.size(REFRESH_COLUMN.dp).clickable(actionRunCallback<RefreshAllAction>()), contentAlignment = Alignment.Center) {
+                Image(
+                    ImageProvider(R.drawable.ic_refresh),
+                    context.getString(if (refreshing) R.string.widget_refreshing else R.string.widget_refresh),
+                    GlanceModifier.size(18.dp),
+                    colorFilter = ColorFilter.tint(if (refreshing) palette.warning else palette.muted),
+                )
+            }
         }
     }
 }
@@ -193,12 +205,16 @@ class UsageWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWi
 
 /** Redraws every widget from the database; called after each account is saved. */
 suspend fun updateWidgets(context: Context) {
-    val manager = GlanceAppWidgetManager(context)
     runCatching {
         val active = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, UsageWidgetReceiver::class.java)).toSet()
         WidgetConfigStore(context).prune(active)
     }
-    // Fresh data is what the refresh button was waiting for.
+    UsageGlanceWidget().updateAll(context)
+}
+
+/** Only the manually requested full pass owns the refresh indicator. */
+suspend fun finishWidgetRefresh(context: Context) {
+    val manager = GlanceAppWidgetManager(context)
     runCatching {
         manager.getGlanceIds(UsageGlanceWidget::class.java).forEach { id ->
             updateAppWidgetState(context, id) { it.remove(REFRESHING) }

@@ -6,6 +6,7 @@ import androidx.room.Room
 import com.eslee.llmusage.BuildConfig
 import com.eslee.llmusage.core.database.UsageDatabase
 import com.eslee.llmusage.core.security.CredentialStore
+import com.eslee.llmusage.core.web.ProfileSessions
 import com.eslee.llmusage.provider.ProviderRegistry
 import com.eslee.llmusage.settings.SettingsStore
 import com.eslee.llmusage.sync.SyncScheduler
@@ -22,6 +23,7 @@ class UsageApplication : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     override fun onCreate() {
         super.onCreate()
+        ProfileSessions.initialize(this)
         scope.launch { graph.settings.flow.collect { SyncScheduler.schedule(this@UsageApplication, it) } }
     }
 }

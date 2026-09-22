@@ -39,12 +39,19 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: bash ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease assembleDebugAndroidTest
+      - name: Retain signed APK for live-session verification
+        # Keep the signed APK separately available for in-place live-session QA.
+        # The full reports artifact also contains the much larger debug APK.
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Verify WebView collection, persistence, and widget values
+      - name: Verify account journeys, session deletion, and widget refresh
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
@@ -56,7 +63,11 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.eslee.llmusage.core.web.WebUsageCollectionTest
+          script: |
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            bash ./gradlew connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+            mkdir -p app/build/reports/emulator-screenshots
+            adb pull /sdcard/Android/data/com.eslee.llmusage/files/qa/. app/build/reports/emulator-screenshots/
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -2,7 +2,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.2.2.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭) 형태이며 기본 4×1, 세로 2칸으로 늘리면 초기화 카운트다운이 함께 보입니다. 오른쪽 위 ↻로 모든 계정을 새로고침합니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.2.4.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭) 형태이며 기본 4×1, 세로 2칸으로 늘리면 초기화 카운트다운이 함께 보입니다. 오른쪽 위 ↻로 모든 계정을 새로고침합니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 
@@ -18,9 +18,9 @@
 
 | 서비스 | 수집 범위 | 갱신 | 검증 상태 |
 | --- | --- | --- | --- |
-| Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | 실험적 parser, 실기기 숫자 미확인 |
+| Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | 실험적 parser, 실계정 에뮬레이터·위젯 수집 확인 |
 | Claude | 표시된 세션·주간 한도 | 앱 내 웹 화면 | 실험적 parser, 실로그인 미검증 |
-| Grok | Settings Usage 주간 %, 제품별 비율, reset, Extra Usage Credits | 자동 WebView 수집, `?_s=usage` | 실험적 parser, 실기기 숫자 미확인 |
+| Grok | Settings Usage 주간 %, 제품별 비율, reset, Extra Usage Credits | 자동 WebView 수집, `?_s=usage` | 실험적 parser, 실계정 에뮬레이터·위젯 수집 확인 |
 | OpenAI API | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
 | Anthropic API | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
 | xAI API | UTC 오늘 팀 API 비용 | Management key와 Team ID, 백그라운드 | 공식 API 구현, 실계정 미검증 |
@@ -58,3 +58,5 @@ APK 기본 경로는 `app/build/outputs/apk/`입니다. 릴리스 서명은 `REL
 자체 서버, 광고, 분석 SDK, 비밀번호 저장, 브라우저 쿠키 가져오기, 구독 한도 우회 기능은 없습니다. 사용자는 Provider 공식 웹 화면에서 직접 인증합니다. 제공자 마크는 각 서비스를 식별하기 위한 공식 로고(OpenAI·Claude·Grok, 각 상표권자 소유)이며 simple-icons와 @lobehub/icons-static-svg 패키지의 벡터 경로를 씁니다. API 계정은 자체 제작 프롬프트 글리프를 씁니다.
 
 [알려진 제한](KNOWN_LIMITATIONS.md) · [보안](SECURITY.md) · [검증 기록](BUILD_REPORT.md) · [개발 이력](docs/DEVELOPMENT_HISTORY.md)
+
+집 PC 개발: [인수인계](docs/HANDOFF_HOME.md) · [v0.2.3 에뮬레이터 검증](docs/QA_V023.md). Windows에서는 scripts/verify-windows.ps1을 사용합니다.

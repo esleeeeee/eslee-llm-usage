@@ -18,7 +18,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -37,6 +39,7 @@ import com.eslee.llmusage.sync.SyncScheduler
 import com.eslee.llmusage.usage.AccountOverview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,6 +63,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val snackbar = remember { SnackbarHostState() }
     val failed = stringResource(R.string.operation_failed)
     val done = stringResource(R.string.saved)
@@ -68,9 +72,13 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     fun push(next: String) { stack = "$stack>$next" }
     fun pop() { if (stack.contains('>')) stack = stack.substringBeforeLast('>') }
     fun action(block: suspend () -> Unit) {
+        if (busy) return
+        busy = true
         scope.launch {
-            busy = true
-            try { block() } catch (_: Exception) { snackbar.showSnackbar(failed) } finally { busy = false }
+            try { block() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { snackbar.showSnackbar(failed) }
+            finally { busy = false }
         }
     }
     fun openWeb(account: Account) {
@@ -83,16 +91,21 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner, settings.intervalMinutes) {
+    LaunchedEffect(lifecycleOwner, settings.intervalMinutes, settings.wifiOnly) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                if (SyncScheduler.allowsForeground(context, settings)) graph.repository.refreshAll()
+                if (SyncScheduler.allowsForeground(context, settings)) {
+                    try { graph.repository.refreshAll() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { snackbar.showSnackbar(failed) }
+                }
                 delay(5 * 60_000L)
             }
         }
     }
     BackHandler(stack.contains('>')) { pop() }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
+        Box(Modifier.fillMaxSize()) {
         when (route) {
             "add" -> AddAccountScreen(graph, busy, onBack = ::pop, onProviders = { push("providers") }) { provider, alias, secret, team, test ->
                 action {
@@ -104,6 +117,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                         }
                     }
                     val id = graph.repository.addAccount(provider.id, alias, secret, team)
+                    keyboard?.hide()
                     selectedId = id
                     stack = "home>detail"
                     if (provider.authMode == AuthMode.WEB_PROFILE) {
@@ -130,10 +144,13 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                     onCredential = { secret -> action { graph.repository.setCredential(selected.account.id, secret); graph.repository.refresh(selected.account.id) } })
                 else ScreenScaffold(stringResource(R.string.usage), onBack = ::pop) { padding -> Text(stringResource(R.string.no_accounts), Modifier.padding(padding).padding(24.dp)) }
             }
-            else -> HomeScreen(accounts, graph, settings, busy, snackbar,
+            else -> HomeScreen(accounts, graph, settings, busy,
                 onOpen = { selectedId = it; push("detail") }, onAdd = { push("add") },
                 onRefreshAll = { action { graph.repository.refreshAll() } },
                 onSettings = { push("settings") }, onProviders = { push("providers") })
+        }
+        // Validation and save errors must also be visible on add/detail/settings.
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding().imePadding().padding(12.dp))
         }
     }
 }
@@ -141,7 +158,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(
-    accounts: List<AccountOverview>, graph: AppGraph, settings: AppSettings, busy: Boolean, snackbar: SnackbarHostState,
+    accounts: List<AccountOverview>, graph: AppGraph, settings: AppSettings, busy: Boolean,
     onOpen: (String) -> Unit, onAdd: () -> Unit, onRefreshAll: () -> Unit, onSettings: () -> Unit, onProviders: () -> Unit,
 ) {
     ScreenScaffold(
@@ -151,7 +168,6 @@ private fun HomeScreen(
             IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, stringResource(R.string.settings)) }
         },
         floatingActionButton = { if (accounts.isNotEmpty()) FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, stringResource(R.string.add_account)) } },
-        snackbarHost = { SnackbarHost(snackbar) },
         busy = busy,
     ) { padding ->
         PullToRefreshBox(isRefreshing = busy, onRefresh = onRefreshAll, modifier = Modifier.padding(padding).fillMaxSize()) {

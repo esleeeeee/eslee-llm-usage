@@ -40,6 +40,7 @@ class ProviderWebActivity : ComponentActivity() {
 
     private var autoReadToken = 0
     private var reading = false
+    private var readJob: kotlinx.coroutines.Job? = null
     private val popups = mutableListOf<WebView>()
     private var monitorToken = 0
     private var attemptedUsageNavigation = false
@@ -227,7 +228,7 @@ class ProviderWebActivity : ComponentActivity() {
                     if (popups.remove(window)) {
                         WebTrace.record("popup-close")
                         (window.parent as? ViewGroup)?.removeView(window)
-                        window.destroy()
+                        ProfileSessions.destroy(window)
                         updateAuthAction()
                         monitorSession(web, accountId, graph, provider, host)
                     } else if (window === web) {
@@ -276,12 +277,7 @@ class ProviderWebActivity : ComponentActivity() {
             authAction.setOnClickListener {
                 val popup = popups.lastOrNull()
                 if (popup != null) web.webChromeClient?.onCloseWindow(popup)
-                else {
-                    WebTrace.record("restart-login")
-                    attemptedUsageNavigation = false
-                    provider.loginUrl?.takeIf { WebNavigationPolicy.allows(it, provider.allowedHosts) }?.let(web::loadUrl)
-                        ?: web.reload()
-                }
+                else restartSignIn(accountId, graph)
             }
             updateAuthAction()
             details.addView(authAction)
@@ -335,6 +331,7 @@ class ProviderWebActivity : ComponentActivity() {
             return
         }
         web.evaluateJavascript(AUTH_STATE_JS) { encoded ->
+            if (closing || browser !== web) return@evaluateJavascript
             val payload = runCatching { JSONObject(JSONTokener(encoded).nextValue() as String) }.getOrNull()
             val state = PageAuthStateDetector.detect(
                 payload?.optString("url").orEmpty().ifBlank { current },
@@ -446,19 +443,19 @@ class ProviderWebActivity : ComponentActivity() {
         if (reading || closing) { done(false); return }
         reading = true
         if (toast) statusLine?.setText(R.string.web_reading)
-        lifecycleScope.launch {
+        readJob = lifecycleScope.launch {
             var saved = false
             try {
                 val page = WebUsageReader.capture(web)
+                if (closing || browser !== web) return@launch
                 if (page != null && UsageSurface.canCollect(page.url, provider.usageUrl, page.text, page.hasPassword)) {
                     val result = graph.repository.recordWeb(accountId, page.text, page.rich)
+                    if (closing || browser !== web) return@launch
                     saved = result is ProviderResult.Success
                     // A parse can succeed on a reset time alone and store a bucket with
                     // no number, which reads as "saved" here but shows as unknown on the
                     // card. Record what came out so the two are told apart.
-                    if (result is ProviderResult.Success && result.snapshot.buckets.none {
-                            it.usedPercent != null || it.remainingPercent != null || it.used != null || it.remaining != null
-                        }) {
+                    if (!WebUsageReader.carriesNumbers(result) && UsageSurface.isUsagePage(page.url, provider.usageUrl)) {
                         // Nothing numeric survived parsing, so the shape of the text
                         // around the label is the only thing left that explains it.
                         // Both captures are shown: if the figure is absent from each,
@@ -511,6 +508,33 @@ class ProviderWebActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(false)
         WebUsageReader.configure(web)
     }
+    private fun restartSignIn(accountId: String, graph: AppGraph) {
+        if (closing) return
+        closing = true
+        verified = false
+        completionToken++
+        readJob?.cancel()
+        resumeMonitoring = null
+        destroyBrowser()
+        lifecycleScope.launch {
+            try {
+                // Reloading leaves the failed OAuth session intact. Retire only this
+                // account's profile, then let onCreate bind a genuinely new WebView.
+                graph.repository.logout(accountId)
+                WebTrace.record("restart-login", "fresh-profile")
+                intent.putExtra("newAccount", true)
+                recreate()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                WebTrace.record("restart-login-failed", error.javaClass.simpleName)
+                Toast.makeText(this@ProviderWebActivity, R.string.operation_failed, Toast.LENGTH_LONG).show()
+                closing = false
+                finish()
+            }
+        }
+    }
+
     private fun destroyBrowser() {
         browser?.let(ProfileSessions::flush)
         monitorToken++
@@ -518,13 +542,13 @@ class ProviderWebActivity : ComponentActivity() {
         popups.toList().forEach {
             (it.parent as? ViewGroup)?.removeView(it)
             it.stopLoading()
-            it.destroy()
+            ProfileSessions.destroy(it)
         }
         popups.clear()
         browser?.let {
             (it.parent as? ViewGroup)?.removeView(it)
             it.stopLoading()
-            it.destroy()
+            ProfileSessions.destroy(it)
         }
         browser = null
     }

@@ -54,6 +54,37 @@ class WebUsageCollectionTest {
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
 
+    @Test fun grokSplitDomPercentageAndEnglishResetReachStorageOnRepeatedBackgroundReads(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        var used = 0
+        val reader = WebUsageReader(context) { web, _ ->
+            web.loadDataWithBaseURL("https://grok.com/?_s=usage", """
+                <html><body><h2>Weekly SuperGrok Limit</h2>
+                <div>About your included usage</div>
+                <svg height="40"><text x="0" y="25"><tspan>$used</tspan><tspan>%</tspan></text></svg>
+                <div>used</div><div>Resets <span>September 25, 2026 at 7:39 AM</span></div>
+                <h2>Extra Usage Credits</h2><div>${'$'}0.00</div></body></html>
+            """.trimIndent(), "text/html", "UTF-8", "https://grok.com/?_s=usage")
+        }
+        val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
+        val id = repository.addAccount("grok", "Synthetic Grok DOM regression")
+        try {
+            for (value in listOf(0, 27)) {
+                used = value
+                repository.refresh(id)
+                val snapshot = requireNotNull(repository.latest(id))
+                val bucket = snapshot.buckets.single { it.id == "weekly" }
+                assertEquals(value.toDouble(), bucket.usedPercent!!, 0.0)
+                assertEquals(100.0 - value, bucket.remainingPercent!!, 0.0)
+                val expected = java.time.LocalDateTime.of(2026, 9, 25, 7, 39)
+                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                assertEquals(expected, bucket.resetAt)
+                assertEquals(com.eslee.llmusage.core.model.SyncMode.BACKGROUND, snapshot.syncMode)
+            }
+        } finally { repository.deleteAccount(id); database.close() }
+    }
+
     @Test fun readButtonStoresCurrentUsageWithoutReloadingRedirectedRoute(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repository = (context.applicationContext as UsageApplication).graph.repository
