@@ -1,6 +1,7 @@
 param(
     [string]$ToolchainRoot = (Join-Path $env:USERPROFILE '.local\android-dev'),
-    [switch]$Connected
+    [switch]$Connected,
+    [string]$EmulatorSerial = 'emulator-5556'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -33,13 +34,16 @@ try {
         Tee-Object (Join-Path $reports 'build.log')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle verification failed.' }
     if ($Connected) {
-        $deviceLine = & adb devices | Select-String '^emulator-\d+\s+device$' | Select-Object -First 1
-        if (!$deviceLine) { throw 'Start an Android emulator before using -Connected.' }
-        $device = $deviceLine.ToString().Split("`t")[0]
+        if ($EmulatorSerial -notmatch '^emulator-\d+$') { throw 'Connected verification requires an emulator serial.' }
+        $deviceLine = & adb devices | Select-String ('^' + [regex]::Escape($EmulatorSerial) + '\s+device$')
+        if (!$deviceLine) { throw "Start the isolated QA emulator $EmulatorSerial before using -Connected. Do not select the live-account emulator." }
+        $device = $EmulatorSerial
         & adb -s $device install -r app/build/outputs/apk/debug/app-debug.apk
         if ($LASTEXITCODE -ne 0) { throw 'Debug APK install failed.' }
         & adb -s $device install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
         if ($LASTEXITCODE -ne 0) { throw 'Test APK install failed.' }
+        & adb -s $device shell settings put secure show_ime_with_hard_keyboard 1
+        if ($LASTEXITCODE -ne 0) { throw 'Could not enable the test keyboard.' }
         $testLog = Join-Path $reports 'instrumentation.log'
         & adb -s $device shell am instrument -w -r com.eslee.llmusage.test/androidx.test.runner.AndroidJUnitRunner |
             Tee-Object $testLog

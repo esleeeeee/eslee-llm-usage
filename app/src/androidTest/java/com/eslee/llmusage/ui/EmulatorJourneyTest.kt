@@ -2,6 +2,9 @@ package com.eslee.llmusage.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.SystemClock
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -104,12 +107,52 @@ class EmulatorJourneyTest {
         compose.onNodeWithText(label(R.string.add_account)).performClick()
         compose.onNodeWithText("OpenAI API").performClick()
         compose.onNodeWithText(label(R.string.alias)).performScrollTo().performClick().performTextInput("QA API")
-        compose.onNodeWithText(label(R.string.credential)).performScrollTo().performClick().performTextInput("local-qa-placeholder")
+        compose.onNodeWithText(label(R.string.credential)).performScrollTo().performClick()
+        // Compose idleness does not wait for the system IME/insets animation.
+        // Require the onscreen keyboard rather than silently testing a larger viewport.
+        var lastImeHeight = -1
+        var stableSince = SystemClock.uptimeMillis()
+        var usableBottom = 0
+        compose.waitUntil(10_000) {
+            var shown = false
+            var imeHeight = 0
+            scenario!!.onActivity { activity ->
+                val decor = activity.window.decorView
+                val insets = ViewCompat.getRootWindowInsets(decor)
+                shown = insets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                imeHeight = insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                usableBottom = decor.height - imeHeight
+            }
+            val now = SystemClock.uptimeMillis()
+            if (!shown || imeHeight != lastImeHeight) stableSince = now
+            lastImeHeight = imeHeight
+            shown && imeHeight > 0 && now - stableSince >= 300
+        }
+        compose.onNodeWithText(label(R.string.credential)).performTextInput("local-qa-placeholder")
+        compose.onNodeWithText(label(R.string.alias)).assertTextContains("QA API")
         // No network validation: this checks keyboard, scrolling and local credential persistence.
-        compose.onNodeWithText(label(R.string.save_unvalidated)).performScrollTo().assertIsDisplayed()
+        val save = compose.onNodeWithText(label(R.string.save_unvalidated))
+        save.performScrollTo().assertIsDisplayed().assertIsEnabled()
         screenshot("06-form-keyboard")
-        compose.onNodeWithText(label(R.string.save_unvalidated)).performClick()
-        compose.waitUntil(10_000) { runBlocking { graph.repository.accounts.first().any { it.account.alias == "QA API" } } }
+        // Re-read geometry after screenshot synchronization; never tap stale pre-IME bounds.
+        save.performScrollTo().assertIsDisplayed().assertIsEnabled()
+        val bounds = save.fetchSemanticsNode().boundsInRoot
+        assertTrue("Save button is covered by IME: $bounds, usable bottom $usableBottom",
+            bounds.top >= 0 && bounds.bottom <= usableBottom && bounds.height > 0)
+        save.performTouchInput { click() }
+        try {
+            compose.waitUntil(10_000) { runBlocking { graph.repository.accounts.first().any { it.account.alias == "QA API" } } }
+        } catch (failure: Throwable) {
+            runCatching {
+                screenshot("06-form-save-failure")
+                val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+                File(directory, "06-form-save-failure.txt").writeText(
+                    "IME height=$lastImeHeight, usable bottom=$usableBottom, save bounds=$bounds\n" +
+                        "QA aliases=" + graph.repository.accounts.first().map { it.account.alias }.filter { it.startsWith("QA ") } +
+                        "\n" + compose.onRoot(useUnmergedTree = true).printToString())
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         compose.onNodeWithText("QA API").assertIsDisplayed()
         val account = graph.repository.accounts.first().single { it.account.alias == "QA API" }.account
         assertEquals("NEEDS_VALIDATION", account.lastErrorCode)

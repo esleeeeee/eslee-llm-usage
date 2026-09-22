@@ -65,9 +65,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             adb shell settings put secure show_ime_with_hard_keyboard 1
-            bash ./gradlew connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
-            mkdir -p app/build/reports/emulator-screenshots
-            adb pull /sdcard/Android/data/com.eslee.llmusage/files/qa/. app/build/reports/emulator-screenshots/
+            bash ./scripts/verify-connected.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -76,6 +74,7 @@ jobs:
             app/build/outputs/apk/
             app/build/reports/
             app/build/test-results/
+            app/build/outputs/androidTest-results/
       - name: Publish versioned APKs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
         env:
