@@ -167,7 +167,14 @@ object ConsumerUsageParser {
     }
 
     internal fun parseReset(section: String, now: Long, localZone: ZoneId = ZoneId.systemDefault()): Long? {
-        val line = section.lineSequence().firstOrNull { resetLabel.containsMatchIn(it) } ?: return null
+        val sectionLines = section.lines()
+        val at = sectionLines.indexOfFirst { resetLabel.containsMatchIn(it) }
+        if (at < 0) return null
+        // A page styles the moment and the word differently, so they are separate
+        // nodes: "2026년 9월 25일 오후 4:39" beside "초기화". The structural capture
+        // keeps one node per line, which left the word alone on its line with no
+        // time to read. Take the neighbours with it.
+        val line = sectionLines.subList(maxOf(0, at - 1), minOf(sectionLines.size, at + 2)).joinToString(" ")
         val iso = Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})").find(line)?.value
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
         koreanResetTime.find(line)?.let { match ->

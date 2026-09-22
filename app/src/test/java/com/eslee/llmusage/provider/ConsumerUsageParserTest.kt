@@ -152,4 +152,30 @@ class ConsumerUsageParserTest {
         // Four lines below the label the number belongs to something else.
         assertTrue(ConsumerUsageParser.parse("grok", "a", "주간 사용량\nfiller\nfiller\nfiller\n42%", now, localZone) is ProviderResult.Failure)
     }
+
+    /**
+     * The structural capture puts every text node on its own line, so a page that
+     * styles the moment and the word "초기화" differently splits them apart and the
+     * word is left alone on its line.
+     */
+    @Test fun aResetTimeIsFoundWhenItsWordSitsOnAnotherLine() {
+        val split = """
+            매주 SuperGrok 한도
+            0%
+            중고
+            2026년 9월 25일 오후 4:39
+            초기화
+        """.trimIndent()
+        val weekly = (ConsumerUsageParser.parse("grok", "a", split, now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(0.0, weekly.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-25T07:39:00Z").toEpochMilli(), weekly.resetAt)
+    }
+
+    @Test fun aRelativeResetSurvivesTheSameSplit() {
+        val split = "5시간 사용 한도\n45%\n남음\n3시간 후\n초기화"
+        val session = (ConsumerUsageParser.parse("chatgpt", "a", split, now, localZone) as ProviderResult.Success)
+            .snapshot.buckets.first { it.id == "session" }
+        assertEquals(now + 3 * 3_600_000L, session.resetAt)
+    }
 }
