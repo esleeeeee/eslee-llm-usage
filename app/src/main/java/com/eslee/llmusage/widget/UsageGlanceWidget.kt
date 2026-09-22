@@ -9,97 +9,156 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.glance.*
-import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.ColorFilter
+import androidx.glance.GlanceId
+import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
+import androidx.glance.LocalSize
 import androidx.glance.action.clickable
-import androidx.glance.appwidget.*
-import androidx.glance.layout.*
-import androidx.glance.text.*
+import androidx.glance.ExperimentalGlanceApi
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.compose
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.updateAll
+import androidx.glance.background
+import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.padding
+import androidx.glance.layout.size
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
+import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.eslee.llmusage.R
-import com.eslee.llmusage.core.model.AuthMode
-import com.eslee.llmusage.core.web.ProviderWebActivity
 import com.eslee.llmusage.ui.MainActivity
+import com.eslee.llmusage.ui.ProviderMarks
+import com.eslee.llmusage.ui.gauge.GaugeGeometry
 
 class UsageGlanceWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val config = WidgetConfigStore(context).get(appWidgetId)
-        val rows = WidgetStateMapper.rows(context,config)
-        provideContent { Content(context,config,rows) }
+        val slots = WidgetStateMapper.slots(context, config)
+        provideContent { Content(context, config, slots) }
     }
     override suspend fun onDelete(context: Context, glanceId: GlanceId) {
         WidgetConfigStore(context).delete(GlanceAppWidgetManager(context).getAppWidgetId(glanceId))
     }
 }
 
+private class Palette(dark: Boolean, background: WidgetBackground) {
+    val dark = dark
+    val foreground = ColorProvider(if (dark) Color(0xFFF3F5F8) else Color(0xFF15181D))
+    val muted = ColorProvider(if (dark) Color(0xA6F3F5F8) else Color(0x9915181D))
+    val warning = ColorProvider(if (dark) Color(0xFFFFB92E) else Color(0xFFB07500))
+    val panel: Color? = when (background) {
+        WidgetBackground.TRANSLUCENT -> if (dark) Color(0xCC15181D) else Color(0xD9FFFFFF)
+        WidgetBackground.SOLID -> if (dark) Color(0xFF15181D) else Color(0xFFFFFFFF)
+        WidgetBackground.NONE -> null
+    }
+}
+
+/**
+ * Rings in a row, like the phone's own battery widget: the ring on top, the
+ * provider mark inside it, the share left as a number in the opening at the
+ * bottom, and the account's name underneath.
+ */
 @Composable
-private fun Content(context: Context, config: WidgetConfig, rows: List<WidgetAccountRow>) {
-    val dpSize = LocalSize.current
-    val size = WidgetLayoutResolver.resolve(dpSize.width.value,dpSize.height.value)
-    val dark = config.theme == WidgetTheme.DARK || (config.theme == WidgetTheme.SYSTEM && context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
-    val foreground = ColorProvider(if(dark) Color(0xFFF2F5FA) else Color(0xFF182333))
-    val background = if(dark) Color(0xFF17202C) else Color(0xFFF4F7FC)
-    val compact = size <= WidgetSize.S
-    val overhead = if(size >= WidgetSize.L) 48 else 30
-    val capacity = minOf(WidgetLayoutResolver.capacity(size), ((dpSize.height.value - overhead) / 42).toInt().coerceAtLeast(1))
-    val rowHeight = (dpSize.height.value - overhead) / minOf(rows.size.coerceAtLeast(1),capacity)
-    Column(GlanceModifier.fillMaxSize().background(background).padding(if(size == WidgetSize.XS) 8.dp else 10.dp)) {
-        if(rows.isEmpty()) Text(context.getString(R.string.widget_empty),GlanceModifier.fillMaxSize().clickable(actionStartActivity(configIntent(context,config.appWidgetId))),TextStyle(color=foreground))
-        else {
-            if(size >= WidgetSize.L) Text("LLM Usage",style=TextStyle(color=foreground,fontSize=14.sp,fontWeight=FontWeight.Bold),maxLines=1)
-            rows.take(capacity).forEach { row ->
-                val missing = row.account == null
-                val tap = if(config.tap == WidgetTap.AUTO) if(compact) WidgetTap.OPEN_ACCOUNT else WidgetTap.OPEN_APP else config.tap
-                val target = when {
-                    missing -> configIntent(context,config.appWidgetId)
-                    tap == WidgetTap.OPEN_PROVIDER && row.account?.authMode == AuthMode.WEB_PROFILE -> Intent(context,ProviderWebActivity::class.java).putExtra("accountId",row.account?.id)
-                    tap == WidgetTap.OPEN_PROVIDER && row.providerUrl?.startsWith("https://") == true -> Intent(Intent.ACTION_VIEW,android.net.Uri.parse(row.providerUrl))
-                    tap == WidgetTap.REFRESH -> Intent(context,WidgetRefreshActivity::class.java).putExtra("accountId",row.account?.id)
-                    else -> Intent(context,MainActivity::class.java).apply { if(tap == WidgetTap.OPEN_ACCOUNT) putExtra("accountId",row.account?.id) }
-                }
-                Column(GlanceModifier.fillMaxWidth().defaultWeight().clickable(actionStartActivity(target))) {
-                    val identity = listOfNotNull(row.provider.takeIf { config.showProvider },row.account?.alias?.takeIf { config.showAlias }).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { row.account?.alias.orEmpty() }
-                    Text(identity,style=TextStyle(color=foreground,fontSize=if(size == WidgetSize.XS) 10.sp else 12.sp),maxLines=1)
-                    val values = row.values.take(if(size >= WidgetSize.M && rows.size == 1 && rowHeight > 150) 3 else if(size == WidgetSize.XL && rowHeight > 95) 2 else 1)
-                    if(values.isEmpty()) Text(if(missing || size == WidgetSize.XS) "--" else context.getString(R.string.widget_unknown),style=TextStyle(color=foreground,fontSize=if(size == WidgetSize.XS) 14.sp else 18.sp),maxLines=1)
-                    values.forEach { value ->
-                      Column(GlanceModifier.fillMaxWidth()) {
-                        val showLabel = size >= WidgetSize.M
-                        Text((if(showLabel) "${value.label}  " else "") + value.text,style=TextStyle(color=foreground,fontSize=if(size == WidgetSize.XS) 14.sp else if(compact) 20.sp else 14.sp,fontWeight=FontWeight.Bold),maxLines=1)
-                        if(size != WidgetSize.XS && rowHeight >= 58 && config.style !in setOf(WidgetStyle.NUMBER,WidgetStyle.LIST) && value.percent != null) LinearProgressIndicator(value.percent,GlanceModifier.fillMaxWidth().height(3.dp),color=ColorProvider(Color(0xFF4C82C7)),backgroundColor=ColorProvider(Color(0xFFCCD7E5)))
-                        if(config.showReset && size != WidgetSize.XS && rowHeight >= 70) Text(value.reset,style=TextStyle(color=foreground,fontSize=10.sp),maxLines=1)
-                    }
-                      }
-                    // Integrity warnings always remain visible, even when decorative status is disabled.
-                    row.status?.let { Text("! $it",style=TextStyle(color=foreground,fontSize=if(size == WidgetSize.XS) 8.sp else 10.sp),maxLines=1) }
-                    if(config.showLastSync && rowHeight >= 90 && size >= WidgetSize.L && row.synced != null) Text(context.getString(R.string.widget_synced,row.synced),style=TextStyle(color=foreground,fontSize=10.sp),maxLines=1)
+private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSlot>) {
+    val size = LocalSize.current
+    val grid = WidgetLayoutResolver.resolve(size.width.value, size.height.value, slots.size)
+    val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    val palette = Palette(config.theme == WidgetTheme.DARK || (config.theme == WidgetTheme.SYSTEM && night), config.background)
+    var panel = GlanceModifier.fillMaxSize()
+    palette.panel?.let { panel = panel.background(it).cornerRadius(20.dp) }
+    panel = panel.padding(WidgetLayoutResolver.PADDING.dp).clickable(actionStartActivity(Intent(context, MainActivity::class.java)))
+    Box(panel, contentAlignment = Alignment.Center) {
+        if (slots.isEmpty()) {
+            Text(
+                context.getString(R.string.widget_empty),
+                GlanceModifier.fillMaxSize().clickable(actionStartActivity(configIntent(context, config.appWidgetId))),
+                TextStyle(color = palette.foreground, fontSize = 13.sp, textAlign = TextAlign.Center),
+            )
+        } else Column(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
+            slots.take(grid.capacity).chunked(grid.columns).forEach { row ->
+                Row(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
+                    row.forEach { slot -> Ring(context, slot, grid, palette, config.appWidgetId, GlanceModifier.defaultWeight()) }
+                    // Keep the columns of a short last row aligned with the rows above.
+                    repeat(grid.columns - row.size) { Spacer(GlanceModifier.defaultWeight()) }
                 }
             }
-            if(rows.size > capacity) Text(context.getString(R.string.widget_more,rows.size-capacity),GlanceModifier.clickable(actionStartActivity(Intent(context,MainActivity::class.java))),TextStyle(color=foreground,fontSize=10.sp),maxLines=1)
         }
     }
 }
-fun configIntent(context: Context,id: Int) = Intent(context,WidgetConfigurationActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id)
+
+@Composable
+private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: Palette, appWidgetId: Int, modifier: GlanceModifier) {
+    val density = context.resources.displayMetrics.density
+    val ring = GaugeBitmap.render((grid.gauge * density).toInt(), slot.remainingPercent, palette.dark, slot.warning)
+    val target = if (slot.accountId == null) configIntent(context, appWidgetId)
+    else Intent(context, MainActivity::class.java).putExtra("accountId", slot.accountId)
+    val titleSize = (grid.gauge * 0.2f).coerceIn(11f, 15f)
+    val captionSize = (grid.gauge * 0.17f).coerceIn(9f, 13f)
+    Column(modifier.clickable(actionStartActivity(target)), horizontalAlignment = Alignment.CenterHorizontally, verticalAlignment = Alignment.CenterVertically) {
+        Box(GlanceModifier.size(grid.gauge.dp), contentAlignment = Alignment.BottomCenter) {
+            Image(ImageProvider(ring), null, GlanceModifier.fillMaxSize())
+            Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Image(
+                    ImageProvider(ProviderMarks.icon(slot.providerId)), null,
+                    GlanceModifier.size((grid.gauge * GaugeGeometry.MARK_FRACTION).dp),
+                    colorFilter = ColorFilter.tint(palette.foreground),
+                )
+            }
+            Text(
+                slot.number,
+                style = TextStyle(color = palette.foreground, fontSize = (grid.gauge * GaugeGeometry.NUMBER_FRACTION).sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
+                maxLines = 1,
+            )
+        }
+        if (grid.showTitle) Text(
+            slot.title,
+            style = TextStyle(color = palette.foreground, fontSize = titleSize.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
+            maxLines = 1,
+        )
+        if (grid.showCaption && slot.caption != null) Text(
+            slot.caption,
+            style = TextStyle(color = if (slot.warning) palette.warning else palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
+            maxLines = 1,
+        )
+    }
+}
+
+fun configIntent(context: Context, id: Int): Intent =
+    Intent(context, WidgetConfigurationActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+
 class UsageWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget = UsageGlanceWidget() }
+
 suspend fun updateWidgets(context: Context) {
-    val active = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context,UsageWidgetReceiver::class.java)).toSet()
+    val active = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, UsageWidgetReceiver::class.java)).toSet()
     WidgetConfigStore(context).prune(active)
     UsageGlanceWidget().updateAll(context)
 }
 
-
-
-
 @OptIn(ExperimentalGlanceApi::class)
-internal suspend fun renderWidgetPreview(context: Context,config: WidgetConfig,rows: List<WidgetAccountRow>,size: androidx.compose.ui.unit.DpSize): android.widget.RemoteViews {
+internal suspend fun renderWidgetPreview(context: Context, config: WidgetConfig, slots: List<WidgetSlot>, size: androidx.compose.ui.unit.DpSize): android.widget.RemoteViews {
     val preview = object : GlanceAppWidget() {
         override val sizeMode = SizeMode.Exact
-        override suspend fun provideGlance(context: Context,id: GlanceId) {
-            provideContent { Content(context,config,rows) }
+        override suspend fun provideGlance(context: Context, id: GlanceId) {
+            provideContent { Content(context, config, slots) }
         }
     }
-    return preview.compose(context,size=size)
+    return preview.compose(context, size = size)
 }
-

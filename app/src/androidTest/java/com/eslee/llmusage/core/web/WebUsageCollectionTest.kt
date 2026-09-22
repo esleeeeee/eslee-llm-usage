@@ -113,21 +113,21 @@ class WebUsageCollectionTest {
             repository.refreshAll()
             val first = requireNotNull(repository.latest(id))
             assertEquals(45.0, first.buckets.first { it.id == "session" }.remainingPercent!!, 0.0)
-            val config = WidgetConfig(appWidgetId = 991, selections = listOf(WidgetSelection(id)), remaining = true)
-            assertTrue(WidgetStateMapper.rows(context, config, repository).first().values.first().text.contains("45"))
+            val config = WidgetConfig(appWidgetId = 991, selections = listOf(WidgetSelection(id)))
+            assertEquals("45", WidgetStateMapper.slots(context, config, repository).first().number)
             remaining = 40
             repository.refresh(id)
             assertNotEquals(first.snapshotId, repository.latest(id)?.snapshotId)
-            assertTrue(WidgetStateMapper.rows(context, config, repository).first().values.first().text.contains("40"))
-            val views = renderWidgetPreview(context, config, WidgetStateMapper.rows(context, config, repository), DpSize(220.dp, 150.dp))
+            assertEquals("40", WidgetStateMapper.slots(context, config, repository).first().number)
+            val views = renderWidgetPreview(context, config, WidgetStateMapper.slots(context, config, repository), DpSize(220.dp, 150.dp))
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 val rendered = views.apply(context, FrameLayout(context))
-                assertTrue(descendants(rendered).filterIsInstance<TextView>().any { it.text.contains("40%") })
+                assertTrue(descendants(rendered).filterIsInstance<TextView>().any { it.text.toString() == "40" })
             }
             val last = repository.latest(id)?.snapshotId
             assertTrue(repository.recordWeb(id, "Loading") is ProviderResult.Failure)
             assertEquals(last, repository.latest(id)?.snapshotId)
-            assertTrue(WidgetStateMapper.rows(context, config, repository).first().values.first().text.contains("40"))
+            assertEquals("40", WidgetStateMapper.slots(context, config, repository).first().number)
         } finally { database.close() }
     }
 

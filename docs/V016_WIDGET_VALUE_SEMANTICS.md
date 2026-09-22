@@ -32,3 +32,7 @@ v0.1.6부터 "사용"은 기본값이 아니므로 `"remaining":false`로 저장
 ## 범위 밖
 
 파서와 수집 경로는 이번 변경에 포함되지 않았다. 이번 증상에서 파서는 정상 동작했다(페이지 "남음" → DB `remainingPercent`). 파서 쪽 잠재 결함은 DEVELOPMENT_HISTORY.md의 "손대지 않은 잠재 결함" 목록에 남겼다.
+
+---
+
+**v0.2.0에서 대체됨.** 위젯이 배터리 링으로 바뀌면서 숫자는 항상 남은 %가 됐고, 이 문서의 `WidgetConfig.remaining`·`effectiveRemaining`·'사용/남음' 선택은 제거됐다. 게이지 채움이 남은 양이라는 원칙(v0.1.11)은 그대로이며, 숫자까지 같은 의미로 통일한 것이다. 배경은 `DEVELOPMENT_HISTORY.md`의 v0.2.0 항목 참고.

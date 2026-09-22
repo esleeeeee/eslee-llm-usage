@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.eslee.llmusage.R
 import com.eslee.llmusage.core.model.*
+import com.eslee.llmusage.usage.AccountOverview
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertTrue
@@ -15,18 +16,20 @@ class UsageUiTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun unknownUsageNeverRendersZeroPercent() {
-        compose.setContent { UsageTheme { BucketContent(UsageBucket("missing", "Quota", confidence = Confidence.UNKNOWN), remaining = true) } }
+        compose.setContent { UsageTheme { BucketContent(UsageBucket("missing", "Quota", confidence = Confidence.UNKNOWN)) } }
         compose.onNodeWithText(context.getString(R.string.unknown)).assertIsDisplayed()
-        compose.onNodeWithText("—").assertIsDisplayed()
-        compose.onNodeWithText("0%").assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.remaining_percent, 0)).assertDoesNotExist()
     }
 
     @Test fun failedSyncRetainsLastKnownUsageAndShowsAuthenticationState() {
         compose.setContent { UsageTheme { AccountCard(
-            Account("account", "claude", "Personal", AuthMode.WEB_PROFILE, lastErrorCode = "AUTH_REQUIRED"),
-            UsageSnapshot("account", "claude", listOf(UsageBucket("weekly", "Weekly", usedPercent = 42.0))),
-            "Claude", false, 0, {}, {}) } }
-        compose.onNodeWithText("42%", useUnmergedTree = true).assertIsDisplayed()
+            AccountOverview(
+                Account("account", "claude", "Personal", AuthMode.WEB_PROFILE, lastErrorCode = "AUTH_REQUIRED"),
+                UsageSnapshot("account", "claude", listOf(UsageBucket("weekly", "Weekly", usedPercent = 42.0))),
+            ),
+            "Claude", 0, {}) } }
+        // The ring reads what is left: 42% used is 58 on the battery.
+        compose.onNodeWithText("58", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.needs_auth), useUnmergedTree = true).assertIsDisplayed()
     }
 
@@ -45,9 +48,9 @@ class UsageUiTest {
         compose.runOnIdle { assertTrue(deleted) }
     }
 
-    @Test fun realZeroUsageIsShownAsZero() {
-        compose.setContent { UsageTheme { BucketContent(UsageBucket("known", "Quota", usedPercent = 0.0), remaining = false) } }
-        compose.onNodeWithText("0%").assertIsDisplayed()
+    @Test fun realZeroUsageIsShownAsFullyLeft() {
+        compose.setContent { UsageTheme { BucketContent(UsageBucket("known", "Quota", usedPercent = 0.0)) } }
+        compose.onNodeWithText(context.getString(R.string.remaining_percent, 100) + " · " + context.getString(R.string.used_percent, 0)).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.unknown)).assertDoesNotExist()
     }
 }

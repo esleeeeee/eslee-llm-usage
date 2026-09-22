@@ -1,25 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">eslee LLM Usage</string>
-    <string name="dashboard">Dashboard</string>
-    <string name="accounts">Accounts</string>
+    <string name="home_title">LLM Usage</string>
     <string name="widgets">Widgets</string>
     <string name="settings">Settings</string>
     <string name="add_account">Add account</string>
     <string name="no_accounts">No accounts yet</string>
-    <string name="empty_description">Add your LLM accounts to see usage and reset times here and on your home screen.</string>
+    <string name="empty_title">Add your first account</string>
+    <string name="empty_description">Sign in to Codex, Claude or Grok once. Usage and reset times then appear here and as rings on your home screen.</string>
     <string name="provider_status">Provider support</string>
     <string name="refresh">Refresh</string>
     <string name="open_web">Open web page</string>
     <string name="refresh_all">Refresh all</string>
     <string name="back">Back</string>
+    <string name="more">More</string>
     <string name="unknown">Unknown</string>
     <string name="no_snapshot">No usage data yet</string>
     <string name="usage">Usage</string>
     <string name="used">Used</string>
     <string name="remaining">Remaining</string>
+    <string name="remaining_percent">%1$d%% left</string>
+    <string name="used_percent">%1$d%% used</string>
+    <string name="credits_value">Credits %1$s</string>
+    <string name="synced_at">Updated %1$s</string>
     <string name="last_sync">Last successful sync: %1$s</string>
-    <string name="reset_at">Resets: %1$s</string>
+    <string name="reset_in_days_hours">Resets in %1$dd %2$dh</string>
+    <string name="reset_in_hours_minutes">Resets in %1$dh %2$dm</string>
+    <string name="reset_in_minutes">Resets in %1$dm</string>
+    <string name="reset_passed">Reset time passed · check</string>
+    <string name="reset_unknown">No reset time on the page</string>
+    <string name="bucket_session">5-hour</string>
+    <string name="bucket_weekly">Weekly</string>
+    <string name="bucket_resets">Banked resets</string>
     <string name="never">Never</string>
     <string name="normal">Up to date</string>
     <string name="stale">Stale data</string>
@@ -37,16 +49,16 @@
     <string name="background">Background sync</string>
     <string name="foreground">Foreground sync</string>
     <string name="manual">Manual only</string>
-    <string name="consumer">Consumer</string>
-    <string name="api">API</string>
+    <string name="login_method_web">Sign in on the web · automatic collection</string>
+    <string name="login_method_api">API key · background</string>
     <string name="alias">Account alias</string>
+    <string name="alias_hint">e.g. Plus, Pro, Work</string>
     <string name="credential">API / Admin key</string>
     <string name="organization">Organization / Team ID (if required)</string>
     <string name="test_save">Test connection and save</string>
     <string name="save_unvalidated">Save · needs validation</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
-    <string name="continue_label">Continue</string>
     <string name="web_explanation">Sign in directly in an isolated browser session. This app never stores your password. Provider login policies or page changes may prevent sync.</string>
     <string name="api_explanation">API billing usage is separate from consumer subscription usage. Supply the credential type and permissions required below.</string>
     <string name="open_login">Open login and sync</string>
@@ -63,8 +75,6 @@
     <string name="delete_account">Delete account</string>
     <string name="delete_account_body">Delete this account, saved usage, credentials and its browser session? This cannot be undone.</string>
     <string name="delete">Delete</string>
-    <string name="primary_bucket">Primary bucket</string>
-    <string name="set_primary">Set as primary</string>
     <string name="primary">Primary</string>
     <string name="sync_settings">Sync</string>
     <string name="interval">Sync interval</string>
@@ -76,15 +86,15 @@
     <string name="system">System</string>
     <string name="light">Light</string>
     <string name="dark">Dark</string>
-    <string name="default_display">Default usage display</string>
     <string name="security">Security</string>
     <string name="delete_credentials">Delete all API credentials</string>
     <string name="delete_sessions">Delete all web sessions</string>
     <string name="delete_all">Delete all app data</string>
     <string name="confirm_clear">This permanently removes the selected local data. Continue?</string>
     <string name="diagnostics">Diagnostics</string>
+    <string name="diagnostics_body">Version, sign-in browser trace, sync results</string>
     <string name="export_diagnostics">Share sanitized diagnostics</string>
-    <string name="about">About and provider status</string>
+    <string name="about">About</string>
     <string name="local_first">Your data stays on this device. No app server, ads or analytics.</string>
     <string name="demo">Add demo account (debug)</string>
     <string name="minutes">%1$d minutes</string>
@@ -93,11 +103,11 @@
     <string name="unlimited">Unlimited</string>
     <string name="operation_failed">Could not complete this action. Please try again.</string>
     <string name="saved">Saved</string>
-    <string name="sync_requested">Refresh requested. Web accounts refresh from their account screen.</string>
     <string name="no_widgets">No home screen widgets yet</string>
+    <string name="widgets_entry_body">Rings on the home screen for the accounts you choose</string>
     <string name="widget_help">Long press your home screen, choose Widgets, then add eslee LLM Usage. Each widget can show different accounts.</string>
     <string name="edit">Edit</string>
-    <string name="widget_summary">Widget #%1$d · %2$d accounts · %3$s</string>
+    <string name="widget_summary">Widget #%1$d · %2$d accounts</string>
     <string name="confidence">Confidence: %1$s</string>
     <string name="source">Source: %1$s</string>
     <string name="exact">Exact</string>
@@ -118,9 +128,7 @@
     <string name="api_count">API credentials: %1$d</string>
     <string name="web_count">Web sessions: %1$d</string>
     <string name="selected_provider">Select a provider</string>
-    <string name="required">Required</string>
     <string name="validation_failed">Connection failed. Check the required key type and permissions; nothing was saved.</string>
-    <string name="default_widget_theme">Default widget theme</string>
     <string name="live_validation_pending">Implemented against documented schemas and fixtures. Live account validation is still required.</string>
     <string name="admin_key_help">Requires an organization Admin key with usage reporting permission.</string>
     <string name="xai_key_help">Requires a Management key with billing/reporting permission and a Team ID.</string>
@@ -128,7 +136,3 @@
     <string name="replace_credential">Replace API credential</string>
     <string name="official_unverified">Official API · live validation pending</string>
 </resources>
-
-
-
-
