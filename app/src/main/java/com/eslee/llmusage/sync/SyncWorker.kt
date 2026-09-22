@@ -29,6 +29,13 @@ object SyncScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
         manager.enqueueUniquePeriodicWork("llm_usage_consumer_sync", ExistingPeriodicWorkPolicy.UPDATE, consumers)
     }
+    /** The widget's refresh button: every account, once, however many times it is tapped. */
+    fun refreshAll(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork("sync_all", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
+    }
     fun refresh(context: Context, id: String) {
         WorkManager.getInstance(context).enqueueUniqueWork("sync_$id", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SyncWorker>().setInputData(workDataOf("accountId" to id))

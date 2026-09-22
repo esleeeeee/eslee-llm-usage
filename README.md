@@ -2,7 +2,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.2.1.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭·초기화 카운트다운) 형태이며 기본 4×2 크기입니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.2.2.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭) 형태이며 기본 4×1, 세로 2칸으로 늘리면 초기화 카운트다운이 함께 보입니다. 오른쪽 위 ↻로 모든 계정을 새로고침합니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 

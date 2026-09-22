@@ -27,6 +27,8 @@
     <string name="widget_reset_hours">↻ %1$d시간</string>
     <string name="widget_reset_minutes">↻ %1$d분</string>
     <string name="widget_reset_passed">↻ 확인</string>
+    <string name="widget_refresh">모든 계정 새로고침</string>
+    <string name="widget_refreshing">갱신 중…</string>
     <string name="web_close">닫기</string>
     <string name="web_login_check">로그인 확인</string>
     <string name="web_login_confirmed">로그인했습니다. 사용량 페이지를 열어 값을 읽습니다.</string>

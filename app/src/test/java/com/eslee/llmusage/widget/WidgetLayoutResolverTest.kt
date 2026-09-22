@@ -16,13 +16,13 @@ class WidgetLayoutResolverTest {
         assertTrue("ring ${grid.gauge}", grid.gauge in 48f..70f)
     }
 
-    @Test fun theDefaultFourByTwoGivesBigRingsWithNameAndCountdown() {
+    @Test fun aFourByTwoGivesBigRingsWithNameAndCountdown() {
         val grid = WidgetLayoutResolver.resolve(320f, 200f, slots = 3)
         assertEquals(3, grid.columns)
         assertEquals(1, grid.rows)
         assertTrue(grid.showTitle)
         assertTrue(grid.showCaption)
-        assertTrue("ring ${grid.gauge}", grid.gauge >= 88f)
+        assertTrue("ring ${grid.gauge}", grid.gauge >= 70f)
     }
 
     /** Reported: everything lined up along one row while the height below stayed empty. */

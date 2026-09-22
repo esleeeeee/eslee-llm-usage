@@ -27,6 +27,8 @@
     <string name="widget_reset_hours">↻ %1$dh</string>
     <string name="widget_reset_minutes">↻ %1$dm</string>
     <string name="widget_reset_passed">↻ check</string>
+    <string name="widget_refresh">Refresh all accounts</string>
+    <string name="widget_refreshing">Refreshing…</string>
     <string name="web_close">Close</string>
     <string name="web_login_check">Check sign-in</string>
     <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>
