@@ -136,4 +136,11 @@
     <string name="provider_default">Provider default</string>
     <string name="replace_credential">Replace API credential</string>
     <string name="official_unverified">Official API · live validation pending</string>
+    <string name="update_prompts">New version alerts</string>
+    <string name="update_prompts_body">Checks GitHub Releases when the app opens, at most once every six hours</string>
+    <string name="update_available_title">Version %1$s is available</string>
+    <string name="update_available_body">You have %1$s. Download the new APK and install it over this one; sign-ins are kept.</string>
+    <string name="update_download">Download</string>
+    <string name="update_skip">Skip this version</string>
+    <string name="update_later">Later</string>
 </resources>

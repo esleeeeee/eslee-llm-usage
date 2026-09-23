@@ -38,7 +38,7 @@ class WidgetRenderingTest {
                 view.layout(0, 0, view.measuredWidth, view.measuredHeight)
                 assertTrue(view.measuredWidth > 0 && view.measuredHeight > 0)
                 val labels = labels(view)
-                val grid = WidgetLayoutResolver.resolve(width - if (width >= 120) 22f else 0f, height.toFloat(), slots.size)
+                val grid = WidgetLayoutResolver.resolve(width - if (width >= 200) 48f else 0f, height.toFloat(), slots.size, columns = WidgetLayoutResolver.cells(width.toFloat()))
                 assertTrue("Zero must remain distinct from unknown at $width x $height", labels.any { it == "0" })
                 // A one-ring widget shows only the first slot; the dash belongs to the third and fourth.
                 if (grid.capacity >= 3) assertTrue("Unknown must be a dash at $width x $height", labels.any { it == "—" })

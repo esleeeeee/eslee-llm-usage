@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.glance.ColorFilter
 import androidx.glance.ExperimentalGlanceApi
 import androidx.glance.GlanceId
@@ -56,9 +57,25 @@ import com.eslee.llmusage.sync.SyncScheduler
 import com.eslee.llmusage.ui.MainActivity
 import com.eslee.llmusage.ui.ProviderMarks
 import com.eslee.llmusage.ui.gauge.GaugeGeometry
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** Set by the refresh button and cleared when its full worker pass finishes. */
 private val REFRESHING = booleanPreferencesKey("refreshing")
+/** When the last full pass finished; the button stays green for a moment after it. */
+private val REFRESHED_AT = longPreferencesKey("refreshed_at")
+/** How long the button shows green once a pass is done. */
+const val REFRESH_DONE_MILLIS = 3_000L
+
+/** What the refresh button is telling the user. */
+enum class RefreshState { IDLE, RUNNING, DONE }
+
+fun refreshState(preferences: Preferences, now: Long = System.currentTimeMillis()): RefreshState = when {
+    preferences[REFRESHING] == true -> RefreshState.RUNNING
+    now - (preferences[REFRESHED_AT] ?: 0L) in 0 until REFRESH_DONE_MILLIS -> RefreshState.DONE
+    else -> RefreshState.IDLE
+}
 
 class UsageGlanceWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
@@ -66,7 +83,7 @@ class UsageGlanceWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val config = WidgetConfigStore(context).get(appWidgetId)
         val slots = WidgetStateMapper.slots(context, config)
-        provideContent { Content(context, config, slots, refreshing = currentState<Preferences>()[REFRESHING] == true) }
+        provideContent { Content(context, config, slots, refreshState(currentState<Preferences>())) }
     }
     override suspend fun onDelete(context: Context, glanceId: GlanceId) {
         WidgetConfigStore(context).delete(GlanceAppWidgetManager(context).getAppWidgetId(glanceId))
@@ -81,7 +98,7 @@ class RefreshAllAction : ActionCallback {
             SyncScheduler.refreshAll(context)
             UsageGlanceWidget().update(context, glanceId)
         } catch (error: Exception) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            withContext(NonCancellable) {
                 updateAppWidgetState(context, glanceId) { it.remove(REFRESHING) }
                 UsageGlanceWidget().update(context, glanceId)
             }
@@ -95,6 +112,7 @@ private class Palette(dark: Boolean, background: WidgetBackground) {
     val foreground = ColorProvider(if (dark) Color(0xFFF3F5F8) else Color(0xFF15181D))
     val muted = ColorProvider(if (dark) Color(0xA6F3F5F8) else Color(0x9915181D))
     val warning = ColorProvider(if (dark) Color(0xFFFFB92E) else Color(0xFFB07500))
+    val done = ColorProvider(Color(GaugeGeometry.fillArgb(GaugeGeometry.Level.HIGH, dark)))
     val panel: Color? = when (background) {
         WidgetBackground.TRANSLUCENT -> if (dark) Color(0xCC15181D) else Color(0xD9FFFFFF)
         WidgetBackground.SOLID -> if (dark) Color(0xFF15181D) else Color(0xFFFFFFFF)
@@ -104,18 +122,23 @@ private class Palette(dark: Boolean, background: WidgetBackground) {
 
 /** Width kept free on the right for the refresh button, so it never sits on a ring. */
 private const val REFRESH_COLUMN = 48f
+/** Narrower widgets give their whole width to rings; their rings open the app instead. */
+private const val REFRESH_MIN_WIDTH = 200f
 
 /**
  * Rings in a row, like the phone's own battery widget: the ring on top, the
  * provider mark inside it, the share left as a number in the opening at the
- * bottom, and the account's name underneath.
+ * bottom, the account's name and its reset countdown underneath. One ring per
+ * launcher cell across; more accounts open more rows.
  */
 @Composable
-private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSlot>, refreshing: Boolean) {
+private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSlot>, refresh: RefreshState) {
     val size = LocalSize.current
-    // A one-cell widget has no room for a button beside its ring; its ring opens the app instead.
-    val showRefresh = size.width.value >= 120f
-    val grid = WidgetLayoutResolver.resolve(size.width.value - if (showRefresh) REFRESH_COLUMN else 0f, size.height.value, slots.size)
+    val showRefresh = size.width.value >= REFRESH_MIN_WIDTH
+    val grid = WidgetLayoutResolver.resolve(
+        size.width.value - if (showRefresh) REFRESH_COLUMN else 0f, size.height.value, slots.size,
+        columns = WidgetLayoutResolver.cells(size.width.value),
+    )
     val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     val palette = Palette(config.theme == WidgetTheme.DARK || (config.theme == WidgetTheme.SYSTEM && night), config.background)
     var panel = GlanceModifier.fillMaxSize()
@@ -131,10 +154,9 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
                 )
             } else Column(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
                 slots.take(grid.capacity).chunked(grid.columns).forEach { row ->
+                    // Rings are cell-sized, so a short last row is centred without changing their size.
                     Row(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
-                        row.forEach { slot -> Ring(context, slot, grid, palette, config.appWidgetId, GlanceModifier.defaultWeight()) }
-                        // Keep the columns of a short last row aligned with the rows above.
-                        repeat(grid.columns - row.size) { Spacer(GlanceModifier.defaultWeight()) }
+                        row.forEach { slot -> Ring(context, slot, grid, palette, config.appWidgetId, GlanceModifier.width(grid.slotWidth.dp)) }
                     }
                 }
             }
@@ -145,9 +167,18 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
             Box(GlanceModifier.size(REFRESH_COLUMN.dp).clickable(actionRunCallback<RefreshAllAction>()), contentAlignment = Alignment.Center) {
                 Image(
                     ImageProvider(R.drawable.ic_refresh),
-                    context.getString(if (refreshing) R.string.widget_refreshing else R.string.widget_refresh),
+                    context.getString(when (refresh) {
+                        RefreshState.RUNNING -> R.string.widget_refreshing
+                        RefreshState.DONE -> R.string.widget_refreshed
+                        RefreshState.IDLE -> R.string.widget_refresh
+                    }),
                     GlanceModifier.size(18.dp),
-                    colorFilter = ColorFilter.tint(if (refreshing) palette.warning else palette.muted),
+                    // Amber while the pass runs, green for a moment when it is done, then quiet again.
+                    colorFilter = ColorFilter.tint(when (refresh) {
+                        RefreshState.RUNNING -> palette.warning
+                        RefreshState.DONE -> palette.done
+                        RefreshState.IDLE -> palette.muted
+                    }),
                 )
             }
         }
@@ -160,8 +191,8 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
     val ring = GaugeBitmap.render((grid.gauge * density).toInt(), slot.remainingPercent, palette.dark, slot.warning)
     val target = if (slot.accountId == null) configIntent(context, appWidgetId)
     else Intent(context, MainActivity::class.java).putExtra("accountId", slot.accountId)
-    val titleSize = (grid.gauge * 0.2f).coerceIn(11f, 13f)
-    val captionSize = (grid.gauge * 0.17f).coerceIn(9f, 11f)
+    val titleSize = (grid.gauge * 0.2f).coerceIn(11f, 12f)
+    val captionSize = (grid.gauge * 0.17f).coerceIn(9f, 10f)
     Column(modifier.clickable(actionStartActivity(target)), horizontalAlignment = Alignment.CenterHorizontally, verticalAlignment = Alignment.CenterVertically) {
         Box(GlanceModifier.size(grid.gauge.dp), contentAlignment = Alignment.BottomCenter) {
             Image(ImageProvider(ring), null, GlanceModifier.fillMaxSize())
@@ -188,7 +219,7 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
         }
         if (grid.showCaption) {
             // A ring without a countdown keeps the line, so every ring in the row sits at the same height.
-            Spacer(GlanceModifier.height(2.dp))
+            Spacer(GlanceModifier.height(WidgetLayoutResolver.CAPTION_GAP.dp))
             Text(
                 slot.caption ?: " ",
                 style = TextStyle(color = if (slot.warning) palette.warning else palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
@@ -212,14 +243,24 @@ suspend fun updateWidgets(context: Context) {
     UsageGlanceWidget().updateAll(context)
 }
 
-/** Only the manually requested full pass owns the refresh indicator. */
+/**
+ * Only the manually requested full pass owns the refresh indicator. The button
+ * turns green when the pass is over and goes quiet a few seconds later, which
+ * takes a second redraw; the state carries the time so a redraw that comes
+ * later for any other reason already shows the quiet button.
+ */
 suspend fun finishWidgetRefresh(context: Context) {
     val manager = GlanceAppWidgetManager(context)
     runCatching {
         manager.getGlanceIds(UsageGlanceWidget::class.java).forEach { id ->
-            updateAppWidgetState(context, id) { it.remove(REFRESHING) }
+            updateAppWidgetState(context, id) {
+                it.remove(REFRESHING)
+                it[REFRESHED_AT] = System.currentTimeMillis()
+            }
         }
     }
+    UsageGlanceWidget().updateAll(context)
+    delay(REFRESH_DONE_MILLIS)
     UsageGlanceWidget().updateAll(context)
 }
 
@@ -228,7 +269,7 @@ internal suspend fun renderWidgetPreview(context: Context, config: WidgetConfig,
     val preview = object : GlanceAppWidget() {
         override val sizeMode = SizeMode.Exact
         override suspend fun provideGlance(context: Context, id: GlanceId) {
-            provideContent { Content(context, config, slots, refreshing = false) }
+            provideContent { Content(context, config, slots, RefreshState.IDLE) }
         }
     }
     return preview.compose(context, size = size)

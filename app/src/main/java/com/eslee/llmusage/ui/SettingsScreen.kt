@@ -72,6 +72,14 @@ internal fun SettingsScreen(
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 )
                 HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.update_prompts)) },
+                    supportingContent = { Text(stringResource(R.string.update_prompts_body)) },
+                    trailingContent = { Switch(settings.updatePrompts, onCheckedChange = { onChange(settings.copy(updatePrompts = it)) }) },
+                    modifier = Modifier.clickable { onChange(settings.copy(updatePrompts = !settings.updatePrompts)) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                )
+                HorizontalDivider()
                 LinkRow(stringResource(R.string.diagnostics), stringResource(R.string.diagnostics_body), onClick = onDiagnostics)
                 LinkRow(stringResource(R.string.provider_status), null, last = true, onClick = onProviders)
             }

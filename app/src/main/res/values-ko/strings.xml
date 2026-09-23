@@ -136,4 +136,11 @@
     <string name="provider_default">제공 업체 기본값</string>
     <string name="replace_credential">API 인증 키 변경</string>
     <string name="official_unverified">공식 API · 실제 계정 검증 전</string>
+    <string name="update_prompts">새 버전 알림</string>
+    <string name="update_prompts_body">앱을 열 때 GitHub 릴리즈를 확인합니다 (6시간에 한 번)</string>
+    <string name="update_available_title">새 버전 %1$s이(가) 있습니다</string>
+    <string name="update_available_body">설치된 버전은 %1$s입니다. 새 APK를 내려받아 덮어쓰기 설치하면 로그인은 유지됩니다.</string>
+    <string name="update_download">다운로드</string>
+    <string name="update_skip">이 버전 건너뛰기</string>
+    <string name="update_later">나중에</string>
 </resources>

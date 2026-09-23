@@ -18,6 +18,10 @@ private val Context.settingsDataStore by preferencesDataStore("settings")
     val theme: String = "SYSTEM",
     val remaining: Boolean = true,
     val widgetTheme: String = "SYSTEM",
+    /** Whether opening the app may ask GitHub Releases for a newer build. */
+    val updatePrompts: Boolean = true,
+    val updateSkipped: String = "",
+    val updateCheckedAt: Long = 0,
 )
 class SettingsStore(context: Context) {
     private val dataStore = context.settingsDataStore

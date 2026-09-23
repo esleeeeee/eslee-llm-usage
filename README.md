@@ -1,8 +1,33 @@
-# eslee LLM Usage
+<p align="center">
+  <img src="assets/branding/eslee-llm-usage.png" width="160" alt="eslee LLM Usage 아이콘">
+</p>
+
+<h1 align="center">eslee LLM Usage</h1>
+
+<p align="center">
+  Codex·Claude·Grok 계정의 남은 사용량과 초기화 시각을 배터리 링으로 보여주는 Android 앱과 홈 화면 위젯입니다.<br>
+  계정별로 격리된 브라우저 세션에서 직접 로그인하고, 서버·계정·광고 없이 기기 안에서만 동작합니다.
+</p>
+
+<p align="center">
+  <a href="https://github.com/esleeeeee/eslee-llm-usage/releases"><img alt="최신 버전" src="https://img.shields.io/github/v/release/esleeeeee/eslee-llm-usage?include_prereleases&label=release"></a>
+  <a href="https://github.com/esleeeeee/eslee-llm-usage/actions/workflows/android.yml"><img alt="빌드 상태" src="https://github.com/esleeeeee/eslee-llm-usage/actions/workflows/android.yml/badge.svg?branch=main"></a>
+  <img alt="Android 9+" src="https://img.shields.io/badge/Android-9.0%2B-3DDC84?logo=android&logoColor=white">
+</p>
+
+<p align="center">
+  <strong><a href="https://github.com/esleeeeee/eslee-llm-usage/releases">APK 내려받기</a></strong>
+</p>
+
+<p align="center">
+  <img src="docs/images/widget-4x1.png" width="640" alt="홈 화면 4×1 위젯: 계정별 배터리 링과 새로고침 버튼">
+</p>
+
+---
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.2.4.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭) 형태이며 기본 4×1, 세로 2칸으로 늘리면 초기화 카운트다운이 함께 보입니다. 오른쪽 위 ↻로 모든 계정을 새로고침합니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.2.5.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭·초기화 카운트다운) 형태이며 가로 칸 수만큼 링이 한 줄에 놓이고(4×n이면 4개) 계정이 더 많으면 줄이 늘어납니다. 오른쪽 위 ↻로 모든 계정을 새로고침하고, 새 버전이 나오면 앱이 알려줍니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 

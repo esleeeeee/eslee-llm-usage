@@ -1,6 +1,7 @@
 package com.eslee.llmusage.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -26,8 +27,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.eslee.llmusage.BuildConfig
 import com.eslee.llmusage.R
 import com.eslee.llmusage.app.AppGraph
+import com.eslee.llmusage.app.UpdateChecker
 import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.core.model.Account
 import com.eslee.llmusage.core.model.AuthMode
@@ -40,6 +43,9 @@ import com.eslee.llmusage.usage.AccountOverview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+
+/** How long a release check result is trusted before the app asks GitHub again. */
+private const val UPDATE_CHECK_INTERVAL = 6 * 3_600_000L
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +110,39 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         }
     }
     BackHandler(stack.contains('>')) { pop() }
+    // A newer build on GitHub Releases is offered once every few hours, unless this version was skipped.
+    var update by remember { mutableStateOf<UpdateChecker.Available?>(null) }
+    LaunchedEffect(settings.updatePrompts) {
+        if (!settings.updatePrompts) return@LaunchedEffect
+        val stored = graph.settings.current()
+        if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@LaunchedEffect
+        val found = UpdateChecker().check(BuildConfig.VERSION_NAME)
+        runCatching { graph.settings.update(graph.settings.current().copy(updateCheckedAt = System.currentTimeMillis())) }
+        if (found != null && found.version != stored.updateSkipped) update = found
+    }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
+        update?.let { found ->
+            AlertDialog(
+                onDismissRequest = { update = null },
+                title = { Text(stringResource(R.string.update_available_title, found.version)) },
+                text = { Text(stringResource(R.string.update_available_body, BuildConfig.VERSION_NAME)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(found.apk ?: found.page))) }
+                        update = null
+                    }) { Text(stringResource(R.string.update_download)) }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            scope.launch { runCatching { graph.settings.update(graph.settings.current().copy(updateSkipped = found.version)) } }
+                            update = null
+                        }) { Text(stringResource(R.string.update_skip)) }
+                        TextButton(onClick = { update = null }) { Text(stringResource(R.string.update_later)) }
+                    }
+                },
+            )
+        }
         Box(Modifier.fillMaxSize()) {
         when (route) {
             "add" -> AddAccountScreen(graph, busy, onBack = ::pop, onProviders = { push("providers") }) { provider, alias, secret, team, test ->
