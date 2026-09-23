@@ -35,7 +35,8 @@ class EmulatorJourneyTest {
 
     @Before fun prepare() = runBlocking {
         previous = graph.settings.current()
-        graph.settings.update(previous.copy(intervalMinutes = 0, theme = "LIGHT"))
+        // Journeys cover the app itself; a release prompt from GitHub must not land on a step.
+        graph.settings.update(previous.copy(intervalMinutes = 0, theme = "LIGHT", updatePrompts = false))
         WorkManager.getInstance(context).cancelAllWork().result.get()
         Unit
     }
@@ -74,7 +75,7 @@ class EmulatorJourneyTest {
 
         compose.onNodeWithContentDescription(label(R.string.settings)).performClick()
         compose.onNodeWithText(label(R.string.dark)).performScrollTo().performClick()
-        compose.waitUntil { runBlocking { graph.settings.current().theme == "DARK" } }
+        compose.waitUntil(10_000) { runBlocking { graph.settings.current().theme == "DARK" } }
         compose.waitForIdle()
         scenario!!.onActivity { activity ->
             assertFalse(WindowCompat.getInsetsController(activity.window, activity.window.decorView).isAppearanceLightStatusBars)

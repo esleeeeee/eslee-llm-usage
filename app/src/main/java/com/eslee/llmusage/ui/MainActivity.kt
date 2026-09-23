@@ -46,6 +46,8 @@ import kotlinx.coroutines.CancellationException
 
 /** How long a release check result is trusted before the app asks GitHub again. */
 private const val UPDATE_CHECK_INTERVAL = 6 * 3_600_000L
+/** How long after the app opens before it asks GitHub at all. */
+private const val UPDATE_CHECK_DELAY = 5_000L
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,6 +125,9 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     var update by remember { mutableStateOf<UpdateChecker.Available?>(null) }
     LaunchedEffect(settings.updatePrompts) {
         if (!settings.updatePrompts) return@LaunchedEffect
+        // Let the screen settle first: a prompt that pops the moment the app opens is in the
+        // way, and the TLS handshake is work the first taps should not compete with.
+        delay(UPDATE_CHECK_DELAY)
         val stored = graph.settings.current()
         if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@LaunchedEffect
         val found = UpdateChecker().check(BuildConfig.VERSION_NAME)
