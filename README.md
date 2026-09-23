@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/branding/eslee-llm-usage.png" width="160" alt="eslee LLM Usage 아이콘">
-</p>
+
 
 <h1 align="center">eslee LLM Usage</h1>
 
