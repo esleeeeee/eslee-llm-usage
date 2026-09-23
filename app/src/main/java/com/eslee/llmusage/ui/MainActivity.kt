@@ -87,6 +87,15 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
             finally { busy = false }
         }
     }
+    // Settings never wait behind a running refresh: the busy guard exists for account work,
+    // and a theme change dropped while a refresh finishes would look like a broken switch.
+    fun settle(block: suspend () -> Unit) {
+        scope.launch {
+            try { block() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { snackbar.showSnackbar(failed) }
+        }
+    }
     fun openWeb(account: Account) {
         context.startActivity(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", account.id))
     }
@@ -117,7 +126,8 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         val stored = graph.settings.current()
         if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@LaunchedEffect
         val found = UpdateChecker().check(BuildConfig.VERSION_NAME)
-        runCatching { graph.settings.update(graph.settings.current().copy(updateCheckedAt = System.currentTimeMillis())) }
+        // A transactional edit: a theme the user picks meanwhile must not be put back.
+        runCatching { graph.settings.edit { it.copy(updateCheckedAt = System.currentTimeMillis()) } }
         if (found != null && found.version != stored.updateSkipped) update = found
     }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
@@ -135,7 +145,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                 dismissButton = {
                     Row {
                         TextButton(onClick = {
-                            scope.launch { runCatching { graph.settings.update(graph.settings.current().copy(updateSkipped = found.version)) } }
+                            scope.launch { runCatching { graph.settings.edit { it.copy(updateSkipped = found.version) } } }
                             update = null
                         }) { Text(stringResource(R.string.update_skip)) }
                         TextButton(onClick = { update = null }) { Text(stringResource(R.string.update_later)) }
@@ -166,7 +176,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
             "providers" -> ProviderScreen(graph.registry.definitions, onBack = ::pop)
             "diagnostics" -> DiagnosticsScreen(graph, onBack = ::pop)
             "widgets" -> WidgetsScreen(accounts, graph, onBack = ::pop)
-            "settings" -> SettingsScreen(settings, accounts, onChange = { action { graph.settings.update(it) } }, onBack = ::pop,
+            "settings" -> SettingsScreen(settings, accounts, onChange = { settle { graph.settings.update(it) } }, onBack = ::pop,
                 onDiagnostics = { push("diagnostics") }, onProviders = { push("providers") }, onWidgets = { push("widgets") },
                 onClear = { kind -> action {
                     when (kind) { 0 -> graph.repository.clearCredentials(apiOnly = true); 1 -> graph.repository.clearCredentials(webOnly = true); else -> graph.repository.clearData() }
