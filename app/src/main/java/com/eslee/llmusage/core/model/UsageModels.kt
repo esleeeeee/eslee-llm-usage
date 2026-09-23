@@ -46,6 +46,9 @@ data class UsageBucket(
 
 @Serializable data class CreditBalance(val amount: Double, val currency: String = "USD")
 
+/** One banked reset a page lists, with the moment it stops being usable when the page says so. */
+@Serializable data class ResetCredit(val label: String? = null, val expiresAt: Long? = null)
+
 @Serializable
 data class UsageSnapshot(
     val accountId: String,
@@ -58,6 +61,7 @@ data class UsageSnapshot(
     val planName: String? = null,
     val accountLabel: String? = null,
     val extraCredits: CreditBalance? = null,
+    val resetCredits: List<ResetCredit> = emptyList(),
     val validUntil: Long? = null,
     val confidence: Confidence = Confidence.REPORTED,
     val syncMode: SyncMode = SyncMode.BACKGROUND,

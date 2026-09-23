@@ -235,13 +235,18 @@ fun configIntent(context: Context, id: Int): Intent =
 
 class UsageWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget = UsageGlanceWidget() }
 
+/** Every widget class this app installs; their configurations share one store keyed by widget id. */
+private val widgetReceivers = listOf(UsageWidgetReceiver::class.java, ResetsWidgetReceiver::class.java)
+
 /** Redraws every widget from the database; called after each account is saved. */
 suspend fun updateWidgets(context: Context) {
     runCatching {
-        val active = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, UsageWidgetReceiver::class.java)).toSet()
+        val manager = AppWidgetManager.getInstance(context)
+        val active = widgetReceivers.flatMap { manager.getAppWidgetIds(ComponentName(context, it)).toList() }.toSet()
         WidgetConfigStore(context).prune(active)
     }
     UsageGlanceWidget().updateAll(context)
+    ResetsGlanceWidget().updateAll(context)
 }
 
 /**

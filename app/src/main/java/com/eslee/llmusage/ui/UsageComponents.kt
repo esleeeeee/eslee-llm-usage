@@ -233,9 +233,13 @@ internal fun AccountCard(overview: AccountOverview, providerName: String, staleH
                 else -> Text(stringResource(R.string.no_snapshot), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                val context = LocalContext.current
                 Text(
-                    snapshot?.extraCredits?.let { stringResource(R.string.credits_value, creditLabel(it)) } ?: "",
-                    style = MaterialTheme.typography.bodySmall,
+                    listOfNotNull(
+                        snapshot?.extraCredits?.let { stringResource(R.string.credits_value, creditLabel(it)) },
+                        UsageLabels.resetCreditsSummary(context, snapshot?.resetCredits.orEmpty()),
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
                     stringResource(R.string.synced_at, account.lastSuccessAt?.let(::clockLabel) ?: stringResource(R.string.never)),

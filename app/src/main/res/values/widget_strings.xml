@@ -1,5 +1,8 @@
 <resources>
     <string name="widget_description">Battery-style rings for your LLM accounts</string>
+    <string name="widget_label">LLM usage rings</string>
+    <string name="resets_widget_label">LLM reset credits</string>
+    <string name="resets_widget_description">Reset credits per account and when they expire</string>
     <string name="widget_configure">Widget settings</string>
     <string name="widget_accounts">Accounts</string>
     <string name="widget_save">Save widget</string>

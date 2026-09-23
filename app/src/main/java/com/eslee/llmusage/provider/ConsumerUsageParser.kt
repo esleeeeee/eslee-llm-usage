@@ -80,8 +80,8 @@ object ConsumerUsageParser {
         }.groupBy { it.id }.values.map { candidates ->
             candidates.maxByOrNull(::bucketEvidence) ?: candidates.first()
         }
-        val withResets = buckets + listOfNotNull(parseBankedResets(visibleText))
-        if (withResets.isEmpty()) {
+        val credits = parseResetCredits(lines, fetchedAt, localZone)
+        if (buckets.isEmpty() && credits.isEmpty()) {
             val login = Regex("sign in to|log in to|continue with (google|apple)|이메일로 로그인|로그인하세요", RegexOption.IGNORE_CASE).containsMatchIn(visibleText)
             return ProviderResult.Failure(if (login) ProviderErrorCode.AUTH_REQUIRED else ProviderErrorCode.PARSE_FAILED,
                 if (login) "서비스에 직접 로그인한 뒤 사용량 화면을 여세요." else "알려진 사용량 숫자나 명시적인 리셋 시각을 찾지 못했습니다. 이전 결과를 유지합니다.")
@@ -96,12 +96,12 @@ object ConsumerUsageParser {
         val plan = Regex("\\b(SuperGrok(?:\\s+(?:Plus|Heavy|Pro))?|Claude (?:Pro|Max)|ChatGPT (?:Plus|Pro|Business|Go))\\b", RegexOption.IGNORE_CASE).find(visibleText)?.value
         val primary = when {
             providerId == "claude" -> "session"
-            providerId == "chatgpt" && withResets.any { it.id == "session" } -> "session"
+            providerId == "chatgpt" && buckets.any { it.id == "session" } -> "session"
             else -> "weekly"
         }
-        return ProviderResult.Success(UsageSnapshot(accountId, providerId, withResets, fetchedAt, SnapshotSource.VISIBLE_PAGE,
-            "공식 화면의 표시 텍스트 · parser $VERSION · 표시되지 않은 값은 알 수 없음", planName = plan, extraCredits = credit,
-            syncMode = SyncMode.FOREGROUND_ONLY, status = if (withResets.any { it.usedPercent == null && it.used == null && it.remaining == null }) SnapshotStatus.PARTIAL else SnapshotStatus.SUCCESS,
+        return ProviderResult.Success(UsageSnapshot(accountId, providerId, buckets, fetchedAt, SnapshotSource.VISIBLE_PAGE,
+            "공식 화면의 표시 텍스트 · parser $VERSION · 표시되지 않은 값은 알 수 없음", planName = plan, extraCredits = credit, resetCredits = credits,
+            syncMode = SyncMode.FOREGROUND_ONLY, status = if (buckets.any { it.usedPercent == null && it.used == null && it.remaining == null }) SnapshotStatus.PARTIAL else SnapshotStatus.SUCCESS,
             primaryBucketId = primary, parserVersion = VERSION))
     }
 
@@ -167,11 +167,79 @@ object ConsumerUsageParser {
         return meanings.singleOrNull() ?: PercentMeaning.UNKNOWN
     }
 
-    private fun parseBankedResets(visibleText: String): UsageBucket? {
-        val count = Regex("(\\d+)\\s+resets?\\s+available|reset available[^\\d]{0,8}(\\d+)|banked resets?[^\\d]{0,8}(\\d+)", RegexOption.IGNORE_CASE)
-            .find(visibleText)?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toDoubleOrNull() } ?: return null
-        return UsageNormalizer.normalize(UsageBucket("resets", "Banked resets", remaining = count, unit = UsageUnit.REQUESTS,
-            confidence = Confidence.REPORTED, scope = QuotaScope.ACCOUNT))
+    private val resetsHeader = Regex("사용량? 한도 재설정|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    private val resetsStop = Regex("추가 사용 크레딧|Extra Usage Credits|자동 충전|Auto[- ]?recharge|남은 크레딧", RegexOption.IGNORE_CASE)
+    private val expiryMarker = Regex("만료|expir", RegexOption.IGNORE_CASE)
+    private val creditItem = Regex("재설정|reset", RegexOption.IGNORE_CASE)
+    private val creditNoise = Regex("재설정 사용|use (?:a )?reset|재설정을 사용해|사용량? 한도 재설정|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    private val creditAvailable = Regex("재설정 가능|reset available", RegexOption.IGNORE_CASE)
+    private val monthNames = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+    /**
+     * Banked resets. Codex lists each one under a header with its own expiry
+     * ("사용량 한도 재설정 / 전체 재설정(주간 + 5시간) / 9월 21일 오전 7:41에 만료", or
+     * "Usage limit resets / Available 2 / Full reset / Expires Oct 4, 1:58 AM"),
+     * the older dashboard only counts them ("3 resets available"), and Grok
+     * shows one that can be used ("사용 한도 재설정 / 재설정 가능 / 1일 후 만료").
+     */
+    internal fun parseResetCredits(lines: List<String>, now: Long, localZone: ZoneId): List<ResetCredit> {
+        val explicit = Regex("(\\d+)\\s+resets?\\s+available|\\bavailable\\s+(\\d+)\\b|재설정\\s*(\\d+)\\s*개", RegexOption.IGNORE_CASE)
+            .find(lines.joinToString("\n"))?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toIntOrNull() }
+        val header = lines.indexOfFirst { resetsHeader.containsMatchIn(it) }
+        if (header < 0 && explicit == null) return emptyList()
+        val section = if (header < 0) emptyList() else lines.subList(header + 1, lines.size).takeWhile { !resetsStop.containsMatchIn(it) }
+        val credits = mutableListOf<ResetCredit>()
+        var label: String? = null
+        for (line in section) {
+            when {
+                expiryMarker.containsMatchIn(line) -> { credits += ResetCredit(label, parseExpiry(line, now, localZone)); label = null }
+                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> label = line
+            }
+        }
+        // A page may state a count beside an abbreviated list; the count is what the user has.
+        if (explicit != null) while (credits.size < explicit) credits += ResetCredit()
+        if (credits.isEmpty() && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(label)
+        return credits.sortedWith(compareBy(nullsLast()) { it.expiresAt })
+    }
+
+    private fun parseExpiry(line: String, now: Long, localZone: ZoneId): Long? =
+        monthDayTime(line, now, localZone) ?: absoluteTime(line, now, localZone) ?: relativeTime(line, now)
+
+    /** "9월 21일 오전 7:41" or "Oct 4, 1:58 AM": without a year, the year is the one that keeps the moment ahead. */
+    private fun monthDayTime(line: String, now: Long, localZone: ZoneId): Long? {
+        val localNow = Instant.ofEpochMilli(now).atZone(localZone)
+        var year: Int? = null
+        val month: Int
+        val day: Int
+        var hour = 0
+        var minute = 0
+        val korean = Regex("(?:(\\d{4})년\\s*)?(\\d{1,2})월\\s*(\\d{1,2})일(?:\\s*(오전|오후)\\s*(\\d{1,2}):(\\d{2}))?").find(line)
+        val english = Regex("\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d{1,2})(?:,?\\s*(\\d{4}))?(?:,?\\s*(?:at\\s*)?(\\d{1,2}):(\\d{2})\\s*(am|pm)?)?", RegexOption.IGNORE_CASE).find(line)
+        if (korean != null) {
+            year = korean.groupValues[1].toIntOrNull()
+            month = korean.groupValues[2].toInt()
+            day = korean.groupValues[3].toInt()
+            val h = korean.groupValues[5].toIntOrNull()
+            val m = korean.groupValues[6].toIntOrNull()
+            if (h != null && m != null) {
+                hour = if (korean.groupValues[4] == "오후") (if (h == 12) 12 else h + 12) else (if (h == 12) 0 else h)
+                minute = m
+            }
+        } else if (english != null) {
+            month = monthNames.indexOf(english.groupValues[1].take(3).lowercase()) + 1
+            day = english.groupValues[2].toInt()
+            year = english.groupValues[3].toIntOrNull()
+            val h = english.groupValues[4].toIntOrNull()
+            val m = english.groupValues[5].toIntOrNull()
+            if (h != null && m != null) {
+                val half = english.groupValues[6].lowercase()
+                hour = when { half == "pm" && h != 12 -> h + 12; half == "am" && h == 12 -> 0; else -> h }
+                minute = m
+            }
+        } else return null
+        val moment = runCatching { ZonedDateTime.of(LocalDate.of(year ?: localNow.year, month, day), LocalTime.of(hour, minute), localZone) }.getOrNull() ?: return null
+        val settled = if (year == null && moment.toInstant().isBefore(Instant.ofEpochMilli(now).minusSeconds(60L * 86_400))) moment.plusYears(1) else moment
+        return settled.toInstant().toEpochMilli()
     }
 
     internal fun parseReset(section: String, now: Long, localZone: ZoneId = ZoneId.systemDefault()): Long? {

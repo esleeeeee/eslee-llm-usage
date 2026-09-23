@@ -1,5 +1,6 @@
 package com.eslee.llmusage.ui
 
+import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.Canvas
@@ -45,6 +46,8 @@ import com.eslee.llmusage.usage.AccountOverview
 import com.eslee.llmusage.usage.SyncLog
 import com.eslee.llmusage.widget.WidgetConfig
 import com.eslee.llmusage.widget.WidgetConfigStore
+import com.eslee.llmusage.widget.ResetSlot
+import com.eslee.llmusage.widget.ResetsWidgetReceiver
 import com.eslee.llmusage.widget.WidgetSlot
 import com.eslee.llmusage.widget.WidgetStateMapper
 import com.eslee.llmusage.widget.configIntent
@@ -133,6 +136,23 @@ internal fun DetailScreen(
                     }
                 }
             } }
+            // Banked resets: each one the page lists, with the moment it lapses.
+            snapshot?.resetCredits?.takeIf { it.isNotEmpty() }?.let { credits -> item {
+                val context = LocalContext.current
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.reset_credits), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.reset_credits_count, credits.size), style = MaterialTheme.typography.titleMedium)
+                        }
+                        credits.forEach { credit ->
+                            val expiry = credit.expiresAt?.let { stringResource(R.string.reset_credit_expiry, UsageLabels.countdownCompact(context, it).orEmpty(), UsageLabels.resetAbsolute(it)) }
+                                ?: stringResource(R.string.reset_credit_expiry_unknown)
+                            Text("${credit.label ?: stringResource(R.string.reset_credit_default_label)} · $expiry", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            } }
             item {
                 SectionTitle(R.string.history)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -216,9 +236,16 @@ internal fun ConfirmDelete(title: Int, body: Int, onDismiss: () -> Unit, onConfi
 @Composable
 internal fun WidgetsScreen(accounts: List<AccountOverview>, graph: AppGraph, onBack: () -> Unit) {
     val context = LocalContext.current
-    var widgets by remember { mutableStateOf(emptyList<Pair<WidgetConfig, List<WidgetSlot>>>()) }
+    var widgets by remember { mutableStateOf(emptyList<Triple<WidgetConfig, List<WidgetSlot>, List<ResetSlot>?>>()) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    suspend fun load() { widgets = WidgetConfigStore(context).all().map { it to WidgetStateMapper.slots(context, it) } }
+    // A reset-credit widget is told apart by the receiver the launcher bound it to.
+    suspend fun load() {
+        val manager = AppWidgetManager.getInstance(context)
+        widgets = WidgetConfigStore(context).all().map { config ->
+            val resets = manager.getAppWidgetInfo(config.appWidgetId)?.provider?.className == ResetsWidgetReceiver::class.java.name
+            Triple(config, if (resets) emptyList() else WidgetStateMapper.slots(context, config), if (resets) WidgetStateMapper.resetSlots(context, config) else null)
+        }
+    }
     // Configuration happens in another activity, so re-read on every return.
     LaunchedEffect(accounts) { load() }
     var resumed by remember { mutableIntStateOf(0) }
@@ -232,10 +259,20 @@ internal fun WidgetsScreen(accounts: List<AccountOverview>, graph: AppGraph, onB
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(stringResource(R.string.widget_help), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (widgets.isEmpty()) item { Text(stringResource(R.string.no_widgets), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp)) }
-            items(widgets, key = { it.first.appWidgetId }) { (widget, slots) ->
+            items(widgets, key = { it.first.appWidgetId }) { (widget, slots, resets) ->
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (resets != null) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(R.string.reset_credits), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            resets.forEach { row ->
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ProviderMark(row.providerId, size = 24.dp)
+                                    Text(row.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                    Text(stringResource(R.string.reset_credits_count, row.count), style = MaterialTheme.typography.titleSmall)
+                                    Text(row.caption, style = MaterialTheme.typography.labelSmall, color = if (row.warning) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                }
+                            }
+                        } else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             slots.forEach { slot ->
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(84.dp)) {
                                     UsageGauge(slot.remainingPercent, androidx.compose.ui.res.painterResource(ProviderMarks.icon(slot.providerId)), size = 64.dp, number = slot.number, warning = slot.warning)

@@ -65,7 +65,8 @@ class ConsumerUsageParserTest {
         assertEquals(25.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
         assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), snapshot.buckets.first { it.id == "weekly" }.resetAt)
         assertEquals(0.0, snapshot.buckets.first { it.id == "reserve" }.usedPercent!!, 0.0)
-        assertEquals(3.0, snapshot.buckets.first { it.id == "resets" }.remaining!!, 0.0)
+        assertEquals(3, snapshot.resetCredits.size)
+        assertTrue(snapshot.buckets.none { it.id == "resets" })
         assertEquals(0.0, snapshot.extraCredits!!.amount, 0.0)
     }
     @Test fun chatgptKoreanCodexSurfaceReadsMultilineRemainingAndLocalResets() {
@@ -258,5 +259,39 @@ class ConsumerUsageParserTest {
         val weekly = (ConsumerUsageParser.parse("grok", "a", text, now, localZone) as ProviderResult.Success)
             .snapshot.buckets.first { it.id == "weekly" }
         assertEquals(null, weekly.resetAt)
+    }
+
+    /** The Korean Codex page lists each banked reset with its own expiry; the count is the list. */
+    @Test fun codexKoreanResetCreditsCarryTheirExpiries() {
+        val snapshot = (parsed("chatgpt", "usage_codex_korean") as ProviderResult.Success).snapshot
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals("전체 재설정(주간 + 5시간)", snapshot.resetCredits[0].label)
+        val zone = localZone
+        val first = java.time.ZonedDateTime.of(2026, 9, 21, 7, 41, 0, 0, zone).toInstant().toEpochMilli()
+        val second = java.time.ZonedDateTime.of(2026, 10, 4, 9, 50, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals(first, snapshot.resetCredits[0].expiresAt)
+        assertEquals(second, snapshot.resetCredits[1].expiresAt)
+    }
+
+    @Test fun codexEnglishResetCreditsUseTheStatedCountAndTheListedExpiry() {
+        val text = "Weekly usage limit\n38%\nremaining\nResets Sep 27, 2026 3:10 AM\nUsage limit resets\nAvailable 2\nFull reset\nExpires Oct 4, 1:58 AM"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "account", text, now, ZoneId.of("UTC")) as ProviderResult.Success).snapshot
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(Instant.parse("2026-10-04T01:58:00Z").toEpochMilli(), snapshot.resetCredits[0].expiresAt)
+        assertEquals("Full reset", snapshot.resetCredits[0].label)
+        assertNull(snapshot.resetCredits[1].expiresAt)
+    }
+
+    @Test fun grokOfferedResetIsOneCreditExpiringInADay() {
+        val snapshot = (parsed("grok", "usage_weekly_korean") as ProviderResult.Success).snapshot
+        assertEquals(1, snapshot.resetCredits.size)
+        assertEquals(now + 86_400_000L, snapshot.resetCredits[0].expiresAt)
+        // The weekly quota keeps its own reset, not the credit's expiry.
+        assertNotEquals(now + 86_400_000L, snapshot.buckets.first { it.id == "weekly" }.resetAt)
+    }
+
+    @Test fun aPageWithoutResetCreditsHasNone() {
+        val snapshot = (parsed("claude", "usage_normal") as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCredits.isEmpty())
     }
 }

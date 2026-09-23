@@ -43,7 +43,9 @@ class WidgetConfigurationActivity : ComponentActivity() {
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return }
         val info = AppWidgetManager.getInstance(this).getAppWidgetInfo(id)
-        if (info?.provider != ComponentName(this, UsageWidgetReceiver::class.java)) { finish(); return }
+        // Both widgets share this screen and the same stored selection; only the preview and the save differ.
+        val resets = info?.provider == ComponentName(this, ResetsWidgetReceiver::class.java)
+        if (!resets && info?.provider != ComponentName(this, UsageWidgetReceiver::class.java)) { finish(); return }
         lifecycleScope.launch {
             val graph = (application as UsageApplication).graph
             val store = WidgetConfigStore(this@WidgetConfigurationActivity)
@@ -57,16 +59,19 @@ class WidgetConfigurationActivity : ComponentActivity() {
                 UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
                     var config by remember { mutableStateOf(original) }
                     var saving by remember { mutableStateOf(false) }
-                    val slots by produceState<List<WidgetSlot>>(emptyList(), config) { value = WidgetStateMapper.slots(this@WidgetConfigurationActivity, config) }
-                    val preview by produceState<RemoteViews?>(null, config, slots) {
-                        value = renderWidgetPreview(this@WidgetConfigurationActivity, config, slots, DpSize(width.dp, height.dp))
+                    val preview by produceState<RemoteViews?>(null, config) {
+                        val activity = this@WidgetConfigurationActivity
+                        value = if (resets) renderResetsPreview(activity, config, WidgetStateMapper.resetSlots(activity, config), DpSize(width.dp, height.dp))
+                        else renderWidgetPreview(activity, config, WidgetStateMapper.slots(activity, config), DpSize(width.dp, height.dp))
                     }
                     fun save() {
                         saving = true
                         lifecycleScope.launch {
                             try {
                                 store.save(config)
-                                UsageGlanceWidget().update(this@WidgetConfigurationActivity, GlanceAppWidgetManager(this@WidgetConfigurationActivity).getGlanceIdBy(id))
+                                val glanceId = GlanceAppWidgetManager(this@WidgetConfigurationActivity).getGlanceIdBy(id)
+                                if (resets) ResetsGlanceWidget().update(this@WidgetConfigurationActivity, glanceId)
+                                else UsageGlanceWidget().update(this@WidgetConfigurationActivity, glanceId)
                                 setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
                                 finish()
                             } finally { saving = false }
@@ -117,7 +122,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                             }
                                         }
                                         val buckets = overview.snapshot?.buckets.orEmpty()
-                                        if (selection != null && buckets.size > 1) {
+                                        if (selection != null && buckets.size > 1 && !resets) {
                                             val all = selection.bucketSelector == "ALL"
                                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
                                                 listOf(false to R.string.widget_primary, true to R.string.widget_all_buckets).forEachIndexed { index, (value, label) ->
@@ -150,7 +155,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            Text(stringResource(R.string.widget_help_resize), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
+                            if (!resets) Text(stringResource(R.string.widget_help_resize), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
                             Spacer(Modifier.height(16.dp))
                         }
                     }

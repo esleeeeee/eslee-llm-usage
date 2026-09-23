@@ -60,4 +60,38 @@ object WidgetStateMapper {
         val caption = status ?: bucket?.let { UsageLabels.resetCompact(context, it.resetAt, now) }
         return WidgetSlot(account.id, account.providerId, title, remaining, GaugeGeometry.numberText(remaining), caption, status != null)
     }
+
+    /**
+     * One row on the reset-credit widget: how many banked resets an account
+     * holds and when the first of them lapses.
+     */
+    suspend fun resetSlots(context: Context, config: WidgetConfig, repository: UsageRepository? = null, now: Long = System.currentTimeMillis()): List<ResetSlot> {
+        val graph = (context.applicationContext as UsageApplication).graph
+        val source = repository ?: graph.repository
+        val settings = graph.settings.current()
+        return config.selections.map { selection ->
+            val account = source.account(selection.accountId)
+                ?: return@map ResetSlot(null, null, context.getString(R.string.widget_missing), 0, null, context.getString(R.string.widget_missing_caption), true)
+            val snapshot = source.latest(account.id)
+            val status = status(context, account, snapshot, settings.staleHours, now)
+            val credits = snapshot?.resetCredits.orEmpty()
+            val soonest = credits.mapNotNull { it.expiresAt }.minOrNull()
+            val caption = status ?: when {
+                credits.isEmpty() -> context.getString(R.string.reset_credits_none)
+                soonest == null -> context.getString(R.string.reset_credit_expiry_unknown)
+                else -> context.getString(R.string.expires_in, UsageLabels.countdownCompact(context, soonest, now))
+            }
+            ResetSlot(account.id, account.providerId, account.alias, credits.size, soonest, caption, status != null)
+        }
+    }
 }
+
+data class ResetSlot(
+    val accountId: String?,
+    val providerId: String?,
+    val title: String,
+    val count: Int,
+    val expiresAt: Long?,
+    val caption: String,
+    val warning: Boolean,
+)
