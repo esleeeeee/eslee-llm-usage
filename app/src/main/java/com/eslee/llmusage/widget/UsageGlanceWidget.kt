@@ -73,7 +73,8 @@ enum class RefreshState { IDLE, RUNNING, DONE }
 
 fun refreshState(preferences: Preferences, now: Long = System.currentTimeMillis()): RefreshState = when {
     preferences[REFRESHING] == true -> RefreshState.RUNNING
-    now - (preferences[REFRESHED_AT] ?: 0L) in 0 until REFRESH_DONE_MILLIS -> RefreshState.DONE
+    // The finish pass removes the mark itself; the time guard only covers a process killed in between.
+    preferences[REFRESHED_AT]?.let { now - it in 0 until REFRESH_DONE_MILLIS * 4 } == true -> RefreshState.DONE
     else -> RefreshState.IDLE
 }
 
@@ -245,14 +246,15 @@ suspend fun updateWidgets(context: Context) {
 
 /**
  * Only the manually requested full pass owns the refresh indicator. The button
- * turns green when the pass is over and goes quiet a few seconds later, which
- * takes a second redraw; the state carries the time so a redraw that comes
- * later for any other reason already shows the quiet button.
+ * turns green when the pass is over and goes quiet a few seconds later. Glance
+ * redraws a widget when its state changes, not when time passes, so the quiet
+ * button needs the mark removed from the state, not merely a second update:
+ * CI caught the button staying green after a pass when only time had moved.
  */
 suspend fun finishWidgetRefresh(context: Context) {
-    val manager = GlanceAppWidgetManager(context)
+    val ids = runCatching { GlanceAppWidgetManager(context).getGlanceIds(UsageGlanceWidget::class.java) }.getOrDefault(emptyList())
     runCatching {
-        manager.getGlanceIds(UsageGlanceWidget::class.java).forEach { id ->
+        ids.forEach { id ->
             updateAppWidgetState(context, id) {
                 it.remove(REFRESHING)
                 it[REFRESHED_AT] = System.currentTimeMillis()
@@ -261,6 +263,7 @@ suspend fun finishWidgetRefresh(context: Context) {
     }
     UsageGlanceWidget().updateAll(context)
     delay(REFRESH_DONE_MILLIS)
+    runCatching { ids.forEach { id -> updateAppWidgetState(context, id) { it.remove(REFRESHED_AT) } } }
     UsageGlanceWidget().updateAll(context)
 }
 
