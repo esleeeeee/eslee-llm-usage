@@ -2,7 +2,6 @@ package com.eslee.llmusage.core.web
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Canvas
 import android.os.SystemClock
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -10,7 +9,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.core.graphics.createBitmap
 import androidx.webkit.WebViewCompat
 import com.eslee.llmusage.core.model.Account
 import com.eslee.llmusage.core.model.SyncMode
@@ -52,7 +50,6 @@ class WebUsageReader(
         val laterRequests = AtomicInteger(0)
         var mainFrameError: String? = null
         val web = WebView(context)
-        val frames = FramePump(web)
         try {
             ProfileSessions.bind(web, profile)
             configure(web)
@@ -79,6 +76,7 @@ class WebUsageReader(
 
             var best: ProviderResult.Success? = null
             var first: ProviderResult.Success? = null
+            var firstPageTime = 0L
             var partial: ProviderResult? = null
             var signature: String? = null
             var stableSince = 0L
@@ -92,7 +90,7 @@ class WebUsageReader(
             val listsResets = provider.id in BANKED_RESETS
             val deadline = started + TIMEOUT
             while (SystemClock.elapsedRealtime() < deadline) {
-                frames.advance(POLL)
+                delay(POLL)
                 val now = SystemClock.elapsedRealtime()
                 val error = mainFrameError
                 if (error != null && best == null) {
@@ -125,7 +123,14 @@ class WebUsageReader(
                 val next = signatureOf(snapshot)
                 if (next != signature) { signature = next; stableSince = now }
                 best = ProviderResult.Success(snapshot.copy(syncMode = SyncMode.BACKGROUND))
-                if (firstFigures == 0L) { firstFigures = now; figuresShownAt.set(now); first = best }
+                if (firstFigures == 0L) {
+                    firstFigures = now
+                    figuresShownAt.set(now)
+                    first = best
+                    firstPageTime = page.time
+                    // The page is up with whatever it cached: now tell it the user came back.
+                    wake(web)
+                }
                 // Banked resets sit at the bottom of the Codex page and can arrive after the
                 // limits, or render only once scrolled to. Reported: an account holding three
                 // showed none, because the read ended before the list was there.
@@ -156,9 +161,15 @@ class WebUsageReader(
                 partial != null -> ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
                 else -> ProviderResult.Failure(ProviderErrorCode.NETWORK_TIMEOUT, "사용량 페이지 응답 시간 초과")
             }
+            if (read != null) {
+                // Whether the page asked the network for its data during this read, or took it
+                // from a cache, is what tells a stale figure's cause apart.
+                val walked = lastPage?.let { it.rich.isNotBlank() && !ConsumerUsageParser.primaryHasNumbers(ConsumerUsageParser.parse(provider.id, account.id, it.text)) } == true
+                probe(web, NETWORK_JS)?.let { WebTrace.recordLong("bg-net", "${provider.id} figures@${firstPageTime / 100 / 10.0}s $it") }
+                if (walked) probe(web, STORAGE_JS)?.let { WebTrace.recordLong("bg-storage", "${provider.id} $it", maxLines = 2) }
+            }
             return finish(account, provider, started, outcome, lastPage, first, laterRequests.get(), read)
         } finally {
-            frames.release()
             // Providers rotate session cookies on each load; an unflushed rotation
             // would silently expire the account and force a fresh sign-in.
             ProfileSessions.flush(web)
@@ -200,50 +211,9 @@ class WebUsageReader(
         return outcome
     }
 
-    /**
-     * A WebView that is never attached to a window is never drawn, and Chromium
-     * does not start a page's next frame until the last one has been drawn. After
-     * its first few frames the page gets no more: requestAnimationFrame callbacks
-     * and IntersectionObserver notifications stop arriving, and a page that
-     * refreshes the figures it cached from one of them keeps showing the cached
-     * ones, or never renders a list waiting to be scrolled to. Drawing the view
-     * into a one-pixel canvas completes each frame the way a screen would, without
-     * touching the page's scripts.
-     */
-    internal class FramePump(private val web: WebView) {
-        private val bitmap = createBitmap(1, 1)
-        private val canvas = Canvas(bitmap)
-        private var failed = false
-
-        fun draw() {
-            if (failed) return
-            try {
-                web.draw(canvas)
-            } catch (error: RuntimeException) {
-                failed = true
-                WebTrace.record("bg-frame", error.javaClass.simpleName)
-            }
-        }
-
-        /** Waits [millis], completing a frame every [FRAME] ms meanwhile. */
-        suspend fun advance(millis: Long) {
-            var waited = 0L
-            while (waited < millis) {
-                val step = minOf(FRAME, millis - waited)
-                delay(step)
-                waited += step
-                draw()
-            }
-        }
-
-        fun release() = bitmap.recycle()
-    }
-
     companion object {
         const val PARALLEL_PAGES = 3
         const val POLL = 500L
-        /** How often a page that nobody sees is given a frame. */
-        const val FRAME = 250L
         const val TIMEOUT = 45_000L
         /** The figures must hold this long, and the page must be this quiet, before they are taken. */
         const val STABLE = 2_000L
@@ -260,9 +230,68 @@ class WebUsageReader(
         const val RESCROLL = 2_000L
         /** How long after the first figures a page showing an already reset window gets to replace it. */
         const val LAPSED_WAIT = 10_000L
+        /** How long the page is left hidden before it is shown again. */
+        const val WAKE_GAP = 300L
         private const val RESET_LINES = 12
 
-        data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "")
+        /** [time] is the page's own clock (performance.now) at the capture, for lining up with its requests. */
+        data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "", val time: Long = 0)
+
+        /**
+         * A page on screen hears the user come back to it: it is hidden, shown again,
+         * and given focus. Pages that keep what they cached until then refresh it at that
+         * moment, the way SWR revalidates on focus. A background page never hears it, so
+         * it is told once, through the WebView's own lifecycle calls rather than a script.
+         * Reported: Grok's figure never changed in the background while the site moved on.
+         */
+        internal suspend fun wake(web: WebView) {
+            web.onPause()
+            delay(WAKE_GAP)
+            web.onResume()
+            // Focus for the page itself, not for the first link or field in it.
+            web.settings.setNeedInitialFocus(false)
+            web.requestFocus()
+            web.onWindowFocusChanged(true)
+        }
+
+        /** Runs a read-only [script] in the page; null when it does not answer in time. */
+        internal suspend fun probe(web: WebView, script: String): String? = withTimeoutOrNull(2_000L) {
+            suspendCancellableCoroutine { continuation ->
+                web.evaluateJavascript(script) { encoded ->
+                    val text = runCatching { JSONTokener(encoded).nextValue() as? String }.getOrNull()
+                    if (continuation.isActive) continuation.resume(text)
+                }
+            }
+        }
+
+        /**
+         * The page's data requests so far, by path only (no host, query or deeper
+         * segments): when each started on the page's clock, and whether it came from the
+         * network, the HTTP cache or a service worker. Requests about usage come first.
+         */
+        internal val NETWORK_JS = """
+            (function(){
+              try{
+                var about=/usage|limit|rate|quota|billing|subscri|credit|reset|plan/i, hot=[], rest=[];
+                performance.getEntriesByType('resource').forEach(function(e){
+                  if(e.initiatorType!=='fetch'&&e.initiatorType!=='xmlhttprequest')return;
+                  var u;try{u=new URL(e.name);}catch(x){return;}
+                  var path=u.pathname.split('/').slice(0,4).join('/');
+                  var from=e.workerStart>0?'sw':(e.transferSize===0&&e.decodedBodySize>0?'cache':'net');
+                  (about.test(path)?hot:rest).push(path+'@'+(e.startTime/1000).toFixed(1)+'s:'+from);
+                });
+                return hot.concat(rest).slice(0,10).join(' ')||'no data requests';
+              }catch(err){return 'unavailable';}
+            })()
+        """.trimIndent()
+
+        /** Names of what the page keeps in local storage, never the values: a page that renders from its own store shows it here. */
+        internal val STORAGE_JS = """
+            (function(){
+              try{return 'keys: '+(Object.keys(localStorage).slice(0,15).map(function(k){return k.slice(0,40);}).join(' ')||'none');}
+              catch(err){return 'unavailable';}
+            })()
+        """.trimIndent()
 
         /** True when parsing found an actual figure, not just a label or a reset time. */
         fun carriesNumbers(result: ProviderResult): Boolean = ConsumerUsageParser.carriesNumbers(result)
@@ -310,7 +339,7 @@ class WebUsageReader(
                     web.evaluateJavascript(if (rich) CAPTURE_JS else CAPTURE_TEXT_JS) { encoded ->
                         val page = runCatching {
                             val json = JSONObject(JSONTokener(encoded).nextValue() as String)
-                            Page(json.getString("url"), json.getString("text"), json.optBoolean("hasPassword"), json.optString("rich"))
+                            Page(json.getString("url"), json.getString("text"), json.optBoolean("hasPassword"), json.optString("rich"), json.optLong("t"))
                         }.getOrNull()
                         if (continuation.isActive) continuation.resume(page)
                     }
@@ -393,7 +422,8 @@ class WebUsageReader(
               }
               if($walkNodes){try{walk(document.body);}catch(err){}}
               return JSON.stringify({url:location.href,text:text.slice(0,120000),
-                rich:rich.join('\n').slice(0,120000),hasPassword:!!document.querySelector('input[type=password]')});
+                rich:rich.join('\n').slice(0,120000),hasPassword:!!document.querySelector('input[type=password]'),
+                t:Math.round(performance.now())});
             })()
         """.trimIndent()
 

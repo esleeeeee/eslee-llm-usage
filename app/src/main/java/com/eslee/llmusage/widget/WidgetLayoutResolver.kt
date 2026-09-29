@@ -50,9 +50,9 @@ object WidgetLayoutResolver {
      * right one, at the top; the left one is what keeps the rings centred. A column
      * reserved on the right alone pushed every ring left of the widget's middle.
      */
-    const val REFRESH_SIDE = 24f
-    /** The refresh button's touch target in the top right corner; its icon is centred in it. */
-    const val REFRESH_TARGET = 40f
+    const val REFRESH_SIDE = 28f
+    /** The refresh button's touch target in the top right corner: the 48dp a finger needs, with the icon centred in it. */
+    const val REFRESH_TARGET = 48f
 
     /** How many cells wide the widget is, judged from its width alone: a 4×n widget always has four rings across. */
     fun cells(width: Float): Int = (width / CELL_WIDTH).toInt().coerceAtLeast(1)

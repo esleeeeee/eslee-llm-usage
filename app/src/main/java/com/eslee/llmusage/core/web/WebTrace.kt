@@ -30,13 +30,21 @@ object WebTrace {
         Executors.newSingleThreadExecutor { task -> Thread(task, "web-trace").apply { isDaemon = true } }
     }
 
+    private const val LINE = 160
+
     /** Never store an address or anything long enough to be a credential. */
-    fun scrub(text: String): String = text
+    fun scrub(text: String, limit: Int = LINE): String = text
         .replace(email, "[email]")
         .replace(secret, "[redacted]")
         .replace(Regex("""\s+"""), " ")
         .trim()
-        .take(160)
+        .take(limit)
+
+    /** A detail too long for one line, scrubbed as a whole and kept as up to [maxLines] numbered lines. */
+    fun recordLong(event: String, detail: String, maxLines: Int = 3) {
+        val parts = scrub(detail, LINE * maxLines).chunked(LINE)
+        parts.forEachIndexed { index, part -> record(if (parts.size > 1) "$event ${index + 1}/${parts.size}" else event, part) }
+    }
 
     /**
      * Keeps the trace in [directory] as well as in memory. Scheduled refreshes run
