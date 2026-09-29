@@ -38,7 +38,7 @@ class WidgetRenderingTest {
                 view.layout(0, 0, view.measuredWidth, view.measuredHeight)
                 assertTrue(view.measuredWidth > 0 && view.measuredHeight > 0)
                 val labels = labels(view)
-                val grid = WidgetLayoutResolver.resolve(width - if (width >= 200) 48f else 0f, height.toFloat(), slots.size, columns = WidgetLayoutResolver.cells(width.toFloat()))
+                val grid = WidgetLayoutResolver.forWidget(width.toFloat(), height.toFloat(), slots.size)
                 assertTrue("Zero must remain distinct from unknown at $width x $height", labels.any { it == "0" })
                 // A one-ring widget shows only the first slot; the dash belongs to the third and fourth.
                 if (grid.capacity >= 3) assertTrue("Unknown must be a dash at $width x $height", labels.any { it == "—" })
@@ -53,6 +53,60 @@ class WidgetRenderingTest {
             }
         }
     }
+    /**
+     * Reported: three accounts on a 4×2 widget huddled together, left of the
+     * middle. They now share the width evenly around the widget's centre; the
+     * screenshots in qa/ show both heights for review.
+     */
+    @Test fun threeRingsSpreadEvenlyAroundTheMiddle() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val slots = listOf(
+            WidgetSlot("plus", "chatgpt", "Plus", 64.0, "64", "↻ 2일", warning = false, detail = "2일 5시간 남음", resetOn = "1일 16:39"),
+            WidgetSlot("pro", "chatgpt", "Pro", 16.0, "16", "↻ 4일", warning = false, detail = "4일 2시간 남음", resetOn = "3일 9:10"),
+            WidgetSlot("grok", "grok", "Grok", 48.0, "48", "↻ 5일", warning = false, detail = "5일 1시간 남음", resetOn = "4일 7:39"),
+        )
+        for ((width, height) in listOf(320 to 100, 320 to 200)) {
+            val views = renderWidgetPreview(context, WidgetConfig(1), slots, DpSize(width.dp, height.dp))
+            instrumentation.runOnMainSync {
+                val view = views.apply(context, FrameLayout(context))
+                val density = context.resources.displayMetrics.density
+                view.measure(View.MeasureSpec.makeMeasureSpec((width * density).toInt(), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec((height * density).toInt(), View.MeasureSpec.EXACTLY))
+                view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+                val centres = listOf("Plus", "Pro", "Grok").map { name ->
+                    val label = views(view).filterIsInstance<TextView>().first { it.text.toString() == name }
+                    centreX(label, view) / density
+                }
+                // Even spacing, and the middle ring on the widget's centre line.
+                val gaps = centres.zipWithNext { a, b -> b - a }
+                assertTrue("uneven gaps $gaps at $width x $height", kotlin.math.abs(gaps[0] - gaps[1]) <= 2f)
+                assertTrue("rings sit off-centre: middle at ${centres[1]} of $width", kotlin.math.abs(centres[1] - width / 2f) <= 2f)
+                assertTrue("rings huddle: gap ${gaps[0]} at $width x $height", gaps[0] >= (width - 2 * (WidgetLayoutResolver.PADDING + WidgetLayoutResolver.REFRESH_SIDE)) / 3f - 2f)
+                val bitmap = Bitmap.createBitmap(view.measuredWidth, view.measuredHeight, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(android.graphics.Color.rgb(230, 232, 237))
+                view.draw(canvas)
+                val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+                File(directory, "widget-3rings-${width}x${height}.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+        }
+    }
+
+    /** Horizontal centre of [view] within [root]; a hierarchy outside a window has no window position to ask for. */
+    private fun centreX(view: View, root: View): Float {
+        var x = view.left + view.width / 2f
+        var parent = view.parent
+        while (parent is View && parent !== root) {
+            x += parent.left - parent.scrollX
+            parent = parent.parent
+        }
+        return x
+    }
+
+    private fun views(view: View): List<View> = listOf(view) +
+        if (view is ViewGroup) (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
+
     private fun labels(view: View): List<String> = when (view) {
         is TextView -> listOf(view.text.toString())
         is ViewGroup -> (0 until view.childCount).flatMap { labels(view.getChildAt(it)) }

@@ -12,7 +12,7 @@ import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.2"
+    const val VERSION = "1.2.3"
     /** A quota label opens a limit of its own; any other label only ends the section before it. */
     private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
     private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
@@ -111,6 +111,24 @@ object ConsumerUsageParser {
             // Complete means the main quota has its figure; a side window without one does not hold a read back.
             status = if (buckets.any { it.id == primary && hasNumbers(it) }) SnapshotStatus.SUCCESS else SnapshotStatus.PARTIAL,
             primaryBucketId = primary, parserVersion = VERSION))
+    }
+
+    /**
+     * Index of the provider's first quota label among [lines], or -1. Diagnostics
+     * anchor on it instead of any line saying "usage": a page's sidebar can hold
+     * the user's own conversation titles, and those must stay out of the trace.
+     */
+    fun quotaLabelIndex(providerId: String, lines: List<String>): Int {
+        val quotas = labels[providerId]?.filter { it.quota } ?: return -1
+        return lines.indexOfFirst { line -> quotas.any { it.pattern.containsMatchIn(line) } }
+    }
+
+    /** The banked-reset section as the page lists it, header first, for diagnostics; null when the page has none. */
+    fun resetSection(text: String): List<String>? {
+        val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        val header = lines.indexOfFirst { resetsHeader.containsMatchIn(it) }
+        if (header < 0) return null
+        return listOf(lines[header]) + lines.drop(header + 1).takeWhile { !resetsStop.containsMatchIn(it) }
     }
 
     fun hasNumbers(bucket: UsageBucket): Boolean =
@@ -224,6 +242,10 @@ object ConsumerUsageParser {
     private val creditItem = Regex("재설정|reset", RegexOption.IGNORE_CASE)
     private val creditNoise = Regex("재설정 사용|use (?:a )?reset|재설정을 사용해|사용량? 한도 재설정|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
     private val creditAvailable = Regex("재설정 가능|reset available", RegexOption.IGNORE_CASE)
+    /** The button each banked reset carries; one per reset even where the page prints no expiry. */
+    private val creditAction = Regex("^(?:재설정 사용|재설정 사용하기|use reset|use this reset|use)$", RegexOption.IGNORE_CASE)
+    /** A count stated inside the section ("3개 사용 가능", "사용 가능 3개"), too generic to trust elsewhere on the page. */
+    private val sectionCount = Regex("(\\d+)\\s*개\\s*(?:사용 가능|남음|보유)|사용 가능(?:한)?\\s*(?:재설정)?\\s*(\\d+)\\s*개?$|^(\\d+)\\s*(?:available|left)$", RegexOption.IGNORE_CASE)
     private val monthNames = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
     /**
@@ -242,6 +264,7 @@ object ConsumerUsageParser {
         val section = if (header < 0) emptyList() else lines.subList(header + 1, lines.size).takeWhile { !resetsStop.containsMatchIn(it) }
         val credits = mutableListOf<ResetCredit>()
         var label: String? = null
+        var lastLabel: String? = null
         section.forEachIndexed { index, line ->
             when {
                 expiryMarker.containsMatchIn(line) -> {
@@ -252,11 +275,15 @@ object ConsumerUsageParser {
                     credits += ResetCredit(label, expiry)
                     label = null
                 }
-                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> label = line
+                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> { label = line; lastLabel = line }
             }
         }
-        // A page may state a count beside an abbreviated list; the count is what the user has.
-        if (explicit != null) while (credits.size < explicit) credits += ResetCredit()
+        // A page may state a count beside an abbreviated list, or list a reset without
+        // printing its expiry; the count, or one button per reset, is what the user has.
+        val stated = section.firstNotNullOfOrNull { line -> sectionCount.find(line)?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toIntOrNull() } }
+        val buttons = section.count { creditAction.matches(it) }
+        val count = maxOf(explicit ?: 0, stated ?: 0, buttons)
+        while (credits.size < count) credits += ResetCredit(lastLabel)
         if (credits.isEmpty() && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(label)
         return credits.sortedWith(compareBy(nullsLast()) { it.expiresAt })
     }

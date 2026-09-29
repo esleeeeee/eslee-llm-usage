@@ -76,6 +76,21 @@ object UsageLabels {
         }
     }
 
+    /** "5일 12시간 남음" until a banked reset lapses, or "만료됨" once it has. */
+    fun expiryLeft(context: Context, at: Long, now: Long = System.currentTimeMillis()): String {
+        val left = countdown(at, now)
+        return when {
+            left == null || (left.days == 0L && left.hours == 0L && left.minutes == 0L) -> context.getString(R.string.expired)
+            left.days > 0 -> context.getString(R.string.widget_left_days_hours, left.days, left.hours)
+            left.hours > 0 -> context.getString(R.string.widget_left_hours_minutes, left.hours, left.minutes)
+            else -> context.getString(R.string.widget_left_minutes, left.minutes)
+        }
+    }
+
+    /** "10월 4일 (토) 오전 9:50": a moment within the coming weeks, in the phone's own style. */
+    fun dayAndTime(at: Long, locale: java.util.Locale = java.util.Locale.getDefault()): String =
+        java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMdEEEjmm"), locale).format(Date(at))
+
     /** "리셋권 2개 · 3일 후 만료": how many banked resets an account holds and when the first one lapses. */
     fun resetCreditsSummary(context: Context, credits: List<ResetCredit>, now: Long = System.currentTimeMillis()): String? {
         if (credits.isEmpty()) return null

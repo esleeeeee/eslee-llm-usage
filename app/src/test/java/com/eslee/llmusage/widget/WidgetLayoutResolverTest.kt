@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WidgetLayoutResolverTest {
-    /** The ring area is the widget minus the 48dp refresh column on the right. */
-    private fun fourByN(height: Float, slots: Int) = WidgetLayoutResolver.resolve(300f - 48f, height, slots, columns = WidgetLayoutResolver.cells(300f))
+    /** A four-cell widget, laid out the way the widget lays itself out. */
+    private fun fourByN(height: Float, slots: Int) = WidgetLayoutResolver.forWidget(300f, height, slots)
 
     @Test fun columnsFollowTheWidgetWidthInCells() {
         assertEquals(1, WidgetLayoutResolver.cells(72f))
@@ -38,18 +38,48 @@ class WidgetLayoutResolverTest {
     }
 
     @Test fun aTwoByThreeWidgetStacksTwoRingsThreeDeep() {
-        val grid = WidgetLayoutResolver.resolve(150f, 300f, slots = 6, columns = WidgetLayoutResolver.cells(150f))
+        val grid = WidgetLayoutResolver.forWidget(150f, 300f, slots = 6)
         assertEquals(2, grid.columns)
         assertEquals(3, grid.rows)
         assertTrue(grid.showTitle)
         assertTrue(grid.showCaption)
     }
 
-    @Test fun fewerAccountsThanCellsKeepCellSizedSlots() {
+    /** Ring size follows the cell, not the account count; a single row then spreads its rings over the width. */
+    @Test fun fewerAccountsThanCellsKeepCellSizedRings() {
         val two = fourByN(100f, slots = 2)
         val four = fourByN(100f, slots = 4)
         assertEquals(four.slotWidth, two.slotWidth, 0.01f)
         assertEquals(four.gauge, two.gauge, 0.01f)
+        assertEquals(1, two.rows)
+    }
+
+    /**
+     * Reported: the rings sat left of the widget's middle. The refresh button's room
+     * is taken from both sides alike, so the rings stay centred on the widget.
+     */
+    @Test fun theRefreshButtonTakesItsRoomFromBothSides() {
+        val wide = WidgetLayoutResolver.forWidget(320f, 100f, slots = 3)
+        assertTrue(wide.showRefresh)
+        assertEquals(WidgetLayoutResolver.REFRESH_SIDE, wide.side, 0f)
+        assertEquals((320f - 2 * (WidgetLayoutResolver.PADDING + WidgetLayoutResolver.REFRESH_SIDE)) / 4, wide.slotWidth, 0.01f)
+        // The icon, centred in its corner target, stays clear of the ring area.
+        val iconLeft = 320f - WidgetLayoutResolver.REFRESH_TARGET / 2 - 9f
+        assertTrue(iconLeft >= 320f - WidgetLayoutResolver.PADDING - wide.side)
+        val narrow = WidgetLayoutResolver.forWidget(150f, 100f, slots = 2)
+        assertFalse(narrow.showRefresh)
+        assertEquals(0f, narrow.side, 0f)
+    }
+
+    /** Reported: the name and two countdown lines were stacked 1dp apart on a 4×2 widget. */
+    @Test fun aTallRowGivesItsLinesRoom() {
+        val tall = fourByN(200f, slots = 3)
+        assertTrue(tall.showDetail)
+        assertEquals(WidgetLayoutResolver.ROOMY_RING_GAP, tall.ringGap, 0f)
+        assertEquals(WidgetLayoutResolver.ROOMY_CAPTION_GAP, tall.lineGap, 0f)
+        val short = fourByN(85f, slots = 3)
+        assertEquals(WidgetLayoutResolver.RING_GAP, short.ringGap, 0f)
+        assertEquals(WidgetLayoutResolver.CAPTION_GAP, short.lineGap, 0f)
     }
 
     /** Reported: the reset countdown must always sit under the name, including in a one-cell row. */
@@ -69,13 +99,16 @@ class WidgetLayoutResolverTest {
         assertTrue(ringOnly.gauge >= WidgetLayoutResolver.MIN_GAUGE)
     }
 
-    @Test fun ringsNeverExceedTheirSlotOrTheirRowOrTheCap() {
+    @Test fun ringsAndTheirLinesNeverExceedTheirSlotOrTheirRowOrTheCap() {
         listOf(72f to 96f, 150f to 200f, 225f to 100f, 300f to 100f, 300f to 200f, 300f to 300f, 375f to 480f).forEach { (width, height) ->
             (1..8).forEach { slots ->
-                val grid = WidgetLayoutResolver.resolve(width, height, slots, columns = WidgetLayoutResolver.cells(width))
+                val grid = WidgetLayoutResolver.forWidget(width, height, slots)
                 val row = (height - 2 * WidgetLayoutResolver.PADDING) / grid.rows
+                val lines = when { grid.showDetail -> 2; grid.showCaption -> 1; else -> 0 }
+                val stack = grid.gauge + (if (grid.showTitle) WidgetLayoutResolver.TITLE_HEIGHT + grid.ringGap else 0f) +
+                    lines * (WidgetLayoutResolver.CAPTION_HEIGHT + grid.lineGap)
                 assertTrue("$width x $height / $slots", grid.gauge <= grid.slotWidth || grid.gauge == WidgetLayoutResolver.MIN_GAUGE)
-                assertTrue("$width x $height / $slots", grid.gauge <= row || grid.gauge == WidgetLayoutResolver.MIN_GAUGE)
+                assertTrue("$width x $height / $slots: $stack > $row", stack <= row || grid.gauge == WidgetLayoutResolver.MIN_GAUGE)
                 assertTrue("$width x $height / $slots", grid.gauge <= WidgetLayoutResolver.MAX_GAUGE)
                 assertTrue("$width x $height / $slots", grid.capacity >= minOf(slots, grid.columns))
             }

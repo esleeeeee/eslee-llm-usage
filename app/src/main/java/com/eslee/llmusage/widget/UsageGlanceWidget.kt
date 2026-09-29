@@ -40,7 +40,6 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -126,32 +125,23 @@ private class Palette(dark: Boolean, background: WidgetBackground) {
     }
 }
 
-/** Width kept free on the right for the refresh button, so it never sits on a ring. */
-private const val REFRESH_COLUMN = 48f
-/** Narrower widgets give their whole width to rings; their rings open the app instead. */
-private const val REFRESH_MIN_WIDTH = 200f
-
 /**
  * Rings in a row, like the phone's own battery widget: the ring on top, the
  * provider mark inside it, the share left as a number in the opening at the
- * bottom, the account's name and its reset countdown underneath. One ring per
- * launcher cell across; more accounts open more rows.
+ * bottom, the account's name and its reset countdown underneath. Ring size
+ * follows the launcher cell; more accounts than cells across open more rows.
  */
 @Composable
 private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSlot>, refresh: RefreshState) {
     val size = LocalSize.current
-    val showRefresh = size.width.value >= REFRESH_MIN_WIDTH
-    val grid = WidgetLayoutResolver.resolve(
-        size.width.value - if (showRefresh) REFRESH_COLUMN else 0f, size.height.value, slots.size,
-        columns = WidgetLayoutResolver.cells(size.width.value),
-    )
+    val grid = WidgetLayoutResolver.forWidget(size.width.value, size.height.value, slots.size)
     val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     val palette = Palette(config.theme == WidgetTheme.DARK || (config.theme == WidgetTheme.SYSTEM && night), config.background)
     var panel = GlanceModifier.fillMaxSize()
     palette.panel?.let { panel = panel.background(it).cornerRadius(20.dp) }
-    panel = panel.padding(WidgetLayoutResolver.PADDING.dp)
-    Row(panel, verticalAlignment = Alignment.CenterVertically) {
-        Box(GlanceModifier.defaultWeight().fillMaxHeight(), contentAlignment = Alignment.Center) {
+    Box(panel) {
+        val inset = GlanceModifier.fillMaxSize().padding(horizontal = (WidgetLayoutResolver.PADDING + grid.side).dp, vertical = WidgetLayoutResolver.PADDING.dp)
+        Box(inset, contentAlignment = Alignment.Center) {
             if (slots.isEmpty()) {
                 Text(
                     context.getString(R.string.widget_empty),
@@ -160,17 +150,22 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
                 )
             } else Column(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
                 slots.take(grid.capacity).chunked(grid.columns).forEach { row ->
-                    // Rings are cell-sized, so a short last row is centred without changing their size.
                     Row(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically, horizontalAlignment = Alignment.CenterHorizontally) {
-                        row.forEach { slot -> Ring(context, slot, grid, palette, config.appWidgetId, GlanceModifier.width(grid.slotWidth.dp)) }
+                        row.forEach { slot ->
+                            // A single row shares the whole width evenly, so three accounts on a
+                            // four-cell widget spread out instead of huddling in the middle. Rows of
+                            // a grid keep cell-wide slots, so a short last row lines up under it.
+                            val width = if (grid.rows == 1) GlanceModifier.defaultWeight() else GlanceModifier.width(grid.slotWidth.dp)
+                            Ring(context, slot, grid, palette, config.appWidgetId, width)
+                        }
                     }
                 }
             }
         }
-        if (showRefresh) Column(GlanceModifier.width(REFRESH_COLUMN.dp).fillMaxHeight(), verticalAlignment = Alignment.Top, horizontalAlignment = Alignment.End) {
+        if (grid.showRefresh) Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
             // The icon is small, but its whole touch target belongs to refresh. A root
             // activity click used to turn near-icon taps into an unexpected app launch.
-            Box(GlanceModifier.size(REFRESH_COLUMN.dp).clickable(actionRunCallback<RefreshAllAction>()), contentAlignment = Alignment.Center) {
+            Box(GlanceModifier.size(WidgetLayoutResolver.REFRESH_TARGET.dp).clickable(actionRunCallback<RefreshAllAction>()), contentAlignment = Alignment.Center) {
                 Image(
                     ImageProvider(R.drawable.ic_refresh),
                     context.getString(when (refresh) {
@@ -219,7 +214,7 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
             )
         }
         if (grid.showTitle) {
-            Spacer(GlanceModifier.height(WidgetLayoutResolver.RING_GAP.dp))
+            Spacer(GlanceModifier.height(grid.ringGap.dp))
             Text(
                 slot.title,
                 style = TextStyle(color = palette.foreground, fontSize = titleSize.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
@@ -229,7 +224,7 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
         if (grid.showCaption) {
             // A ring without a countdown keeps its lines, so every ring in the row sits at the same height.
             val color = if (slot.warning) palette.warning else palette.muted
-            Spacer(GlanceModifier.height(WidgetLayoutResolver.CAPTION_GAP.dp))
+            Spacer(GlanceModifier.height(grid.lineGap.dp))
             // With a second line to spare the countdown is spelled out ("2일 5시간 남음")
             // and the moment of the reset follows it ("25일 16:39").
             Text(
@@ -238,7 +233,7 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
                 maxLines = 1,
             )
             if (grid.showDetail) {
-                Spacer(GlanceModifier.height(WidgetLayoutResolver.CAPTION_GAP.dp))
+                Spacer(GlanceModifier.height(grid.lineGap.dp))
                 Text(
                     slot.resetOn ?: " ",
                     style = TextStyle(color = palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),

@@ -6,7 +6,10 @@ import kotlin.math.min
 /**
  * How many rings fit and how large they are, for one widget size in dp.
  * [showDetail] adds a second line under the name: the countdown spelled out and
- * the moment of the reset.
+ * the moment of the reset. [side] is kept free on both sides of the rings when
+ * [showRefresh] puts the refresh button in the top right corner, so the rings
+ * stay centred on the widget. [ringGap] and [lineGap] open up when the row has
+ * height to spare.
  */
 data class WidgetGrid(
     val columns: Int,
@@ -16,6 +19,10 @@ data class WidgetGrid(
     val showTitle: Boolean,
     val showCaption: Boolean,
     val showDetail: Boolean = false,
+    val showRefresh: Boolean = false,
+    val side: Float = 0f,
+    val ringGap: Float = WidgetLayoutResolver.RING_GAP,
+    val lineGap: Float = WidgetLayoutResolver.CAPTION_GAP,
 ) {
     val capacity: Int get() = columns * rows
 }
@@ -29,13 +36,33 @@ object WidgetLayoutResolver {
     const val CAPTION_HEIGHT = 13f
     const val RING_GAP = 3f
     const val CAPTION_GAP = 1f
+    /** The gaps a row with height to spare uses instead. */
+    const val ROOMY_RING_GAP = 6f
+    const val ROOMY_CAPTION_GAP = 2f
     const val MIN_GAUGE = 36f
     const val MAX_GAUGE = 76f
     /** The detail line is only worth having while the ring above it stays this large. */
     const val DETAIL_MIN_GAUGE = 44f
+    /** Narrower widgets give their whole width to rings; their rings open the app instead. */
+    const val REFRESH_MIN_WIDTH = 200f
+    /**
+     * Kept free on each side when the refresh button shows. The button sits in the
+     * right one, at the top; the left one is what keeps the rings centred. A column
+     * reserved on the right alone pushed every ring left of the widget's middle.
+     */
+    const val REFRESH_SIDE = 24f
+    /** The refresh button's touch target in the top right corner; its icon is centred in it. */
+    const val REFRESH_TARGET = 40f
 
     /** How many cells wide the widget is, judged from its width alone: a 4×n widget always has four rings across. */
     fun cells(width: Float): Int = (width / CELL_WIDTH).toInt().coerceAtLeast(1)
+
+    /** The grid for a whole widget: the refresh button's room first, then the rings in what is left. */
+    fun forWidget(width: Float, height: Float, slots: Int): WidgetGrid {
+        val refresh = width >= REFRESH_MIN_WIDTH
+        val side = if (refresh) REFRESH_SIDE else 0f
+        return resolve(width - 2 * side, height, slots, columns = cells(width)).copy(showRefresh = refresh, side = side)
+    }
 
     /**
      * Columns follow the widget's width in cells, never the number of accounts:
@@ -61,11 +88,17 @@ object WidgetLayoutResolver {
         val showDetail = showCaption && ring(slotWidth, rowHeight, title = true, captionLines = 2) >= min(DETAIL_MIN_GAUGE, slotWidth - 8f)
         val lines = when { showDetail -> 2; showCaption -> 1; else -> 0 }
         val gauge = ring(slotWidth, rowHeight, showTitle, lines).coerceIn(MIN_GAUGE, MAX_GAUGE)
-        return WidgetGrid(cols, rows, slotWidth, gauge, showTitle, showCaption, showDetail)
+        // Lines set 1dp apart read as one block; where the row is taller than its
+        // content needs, the name and the countdown get room to breathe.
+        val roomy = showTitle && rowHeight - gauge - text(showTitle, lines, RING_GAP, CAPTION_GAP) >=
+            (ROOMY_RING_GAP - RING_GAP) + lines * (ROOMY_CAPTION_GAP - CAPTION_GAP) + 8f
+        return WidgetGrid(cols, rows, slotWidth, gauge, showTitle, showCaption, showDetail,
+            ringGap = if (roomy) ROOMY_RING_GAP else RING_GAP, lineGap = if (roomy) ROOMY_CAPTION_GAP else CAPTION_GAP)
     }
 
-    private fun ring(slotWidth: Float, rowHeight: Float, title: Boolean, captionLines: Int): Float {
-        val text = (if (title) TITLE_HEIGHT + RING_GAP else 0f) + captionLines * (CAPTION_HEIGHT + CAPTION_GAP)
-        return min(slotWidth - 8f, rowHeight - text - 2f)
-    }
+    private fun text(title: Boolean, captionLines: Int, ringGap: Float, lineGap: Float): Float =
+        (if (title) TITLE_HEIGHT + ringGap else 0f) + captionLines * (CAPTION_HEIGHT + lineGap)
+
+    private fun ring(slotWidth: Float, rowHeight: Float, title: Boolean, captionLines: Int): Float =
+        min(slotWidth - 8f, rowHeight - text(title, captionLines, RING_GAP, CAPTION_GAP) - 2f)
 }

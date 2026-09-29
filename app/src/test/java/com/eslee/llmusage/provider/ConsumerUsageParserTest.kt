@@ -344,6 +344,32 @@ class ConsumerUsageParserTest {
         assertTrue(with.resetCreditsKnown)
     }
 
+    /**
+     * Reported: two accounts each held three resets and only one showed three. A
+     * reset the page lists without printing its expiry still has its button, and a
+     * count stated inside the section is what the user has.
+     */
+    @Test fun resetsWithoutAPrintedExpiryAreCountedByTheirButtons() {
+        val page = "5시간 사용 한도\n45%\n남음\n사용량 한도 재설정\n전체 재설정(주간 + 5시간)\n10월 4일 오전 9:50에 만료\n재설정 사용\n" +
+            "전체 재설정(주간 + 5시간)\n재설정 사용\n전체 재설정(주간 + 5시간)\n재설정 사용\n자동 충전"
+        val credits = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot.resetCredits
+        assertEquals(3, credits.size)
+        assertEquals(java.time.ZonedDateTime.of(2026, 10, 4, 9, 50, 0, 0, localZone).toInstant().toEpochMilli(), credits.first().expiresAt)
+        val stated = "5시간 사용 한도\n45%\n남음\n사용량 한도 재설정\n3개 사용 가능\n전체 재설정(주간 + 5시간)\n10월 4일 오전 9:50에 만료\n재설정 사용"
+        assertEquals(3, (ConsumerUsageParser.parse("chatgpt", "a", stated, now, localZone) as ProviderResult.Success).snapshot.resetCredits.size)
+    }
+
+    /** Diagnostics start at a quota label, never at a sidebar line that happens to say "usage". */
+    @Test fun diagnosticsAnchorOnTheQuotaLabelAndTheResetSection() {
+        val lines = listOf("Chats", "My usage question", "매주 SuperGrok 한도", "52%", "중고")
+        assertEquals(2, ConsumerUsageParser.quotaLabelIndex("grok", lines))
+        assertEquals(-1, ConsumerUsageParser.quotaLabelIndex("grok", listOf("Chats", "usage limits explained")))
+        val section = ConsumerUsageParser.resetSection(fixture("chatgpt", "usage_codex_korean"))!!
+        assertEquals("사용량 한도 재설정", section.first())
+        assertTrue(section.none { it.contains("자동 충전") })
+        assertNull(ConsumerUsageParser.resetSection("5시간 사용 한도\n45%\n남음"))
+    }
+
     /** The node walk can put the moment and the word "만료" on separate lines. */
     @Test fun aResetCreditExpirySplitAcrossLinesIsStillRead() {
         val page = "5시간 사용 한도\n45%\n남음\n사용량 한도 재설정\n전체 재설정(주간 + 5시간)\n9월 21일 오전 7:41\n에 만료\n재설정 사용"

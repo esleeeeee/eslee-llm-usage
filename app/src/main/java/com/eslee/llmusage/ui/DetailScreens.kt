@@ -136,23 +136,11 @@ internal fun DetailScreen(
                     }
                 }
             } }
-            // Banked resets: each one the page lists, with the moment it lapses.
-            snapshot?.resetCredits?.takeIf { it.isNotEmpty() }?.let { credits -> item {
-                val context = LocalContext.current
-                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.reset_credits), style = MaterialTheme.typography.titleSmall)
-                            Text(stringResource(R.string.reset_credits_count, credits.size), style = MaterialTheme.typography.titleMedium)
-                        }
-                        credits.forEach { credit ->
-                            val expiry = credit.expiresAt?.let { stringResource(R.string.reset_credit_expiry, UsageLabels.countdownCompact(context, it).orEmpty(), UsageLabels.resetAbsolute(it)) }
-                                ?: stringResource(R.string.reset_credit_expiry_unknown)
-                            Text("${credit.label ?: stringResource(R.string.reset_credit_default_label)} · $expiry", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            } }
+            // Banked resets: every one the page lists and how long each has left. Codex
+            // always has the section, so its card also says when none or none yet are known.
+            if (snapshot != null && (snapshot.resetCreditsKnown || snapshot.resetCredits.isNotEmpty() || account.providerId == "chatgpt")) item {
+                ResetCreditsCard(snapshot)
+            }
             item {
                 SectionTitle(R.string.history)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -190,6 +178,55 @@ internal fun DetailScreen(
                     })), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Each banked reset on its own row: what it restores, how long is left before it
+ * lapses, and the moment it does. The soonest comes first, and one about to lapse
+ * is marked, since a reset left unused past that point is simply lost.
+ */
+@Composable
+private fun ResetCreditsCard(snapshot: UsageSnapshot) {
+    val context = LocalContext.current
+    val credits = snapshot.resetCredits
+    val now = System.currentTimeMillis()
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.reset_credits), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    when {
+                        credits.isNotEmpty() -> stringResource(R.string.reset_credits_count, credits.size)
+                        snapshot.resetCreditsKnown -> stringResource(R.string.reset_credits_none)
+                        else -> stringResource(R.string.reset_credits_unknown)
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            credits.forEachIndexed { index, credit ->
+                if (index > 0) HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(credit.label ?: stringResource(R.string.reset_credit_default_label), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            credit.expiresAt?.let { stringResource(R.string.reset_credit_expires_on, UsageLabels.dayAndTime(it)) }
+                                ?: stringResource(R.string.reset_credit_expiry_unknown),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    credit.expiresAt?.let { at ->
+                        val soon = at - now < 86_400_000L
+                        Text(
+                            UsageLabels.expiryLeft(context, at, now),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (soon) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+            Text(stringResource(R.string.reset_credits_as_of, timeLabel(snapshot.fetchedAt)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

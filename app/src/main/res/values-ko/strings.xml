@@ -47,7 +47,8 @@
     <string name="battery_dismiss">나중에</string>
     <string name="reset_credits_summary">리셋권 %1$d개 · %2$s 후 만료</string>
     <string name="reset_credits_summary_no_expiry">리셋권 %1$d개</string>
-    <string name="reset_credit_expiry">%1$s 후 만료 · %2$s</string>
+    <string name="reset_credit_expires_on">%1$s 만료</string>
+    <string name="reset_credits_as_of">%1$s 기준</string>
     <string name="reset_credit_expiry_unknown">만료 시각 미표시</string>
     <string name="reset_credit_default_label">전체 재설정</string>
     <string name="expires_in">%1$s 후 만료</string>
