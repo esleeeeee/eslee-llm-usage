@@ -131,6 +131,22 @@ object ConsumerUsageParser {
         return listOf(lines[header]) + lines.drop(header + 1).takeWhile { !resetsStop.containsMatchIn(it) }
     }
 
+    /** How long past its reset a quota's figure is still believed: servers can roll a window over a little late. */
+    private const val LAPSE_GRACE = 60 * 60_000L
+
+    /**
+     * True when the main quota shows usage in a window that has already reset. No
+     * current page says that; a page painting what it cached before the reset does.
+     * Reported: Grok's figure never changed while every refresh counted as a success.
+     * Nothing used, or no reset time, is never judged: an idle window can look like either.
+     */
+    fun lapsed(snapshot: UsageSnapshot, now: Long = System.currentTimeMillis()): Boolean {
+        val primary = snapshot.buckets.firstOrNull { it.id == snapshot.primaryBucketId } ?: return false
+        val resetAt = primary.resetAt ?: return false
+        val used = UsageNormalizer.usedPercent(primary) ?: return false
+        return used > 0.0 && resetAt < now - LAPSE_GRACE
+    }
+
     fun hasNumbers(bucket: UsageBucket): Boolean =
         bucket.usedPercent != null || bucket.remainingPercent != null || bucket.used != null || bucket.remaining != null
 

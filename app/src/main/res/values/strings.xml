@@ -62,6 +62,7 @@
     <string name="stale">Stale data</string>
     <string name="needs_auth">Sign in again</string>
     <string name="parse_failed">Cannot read usage · page may have changed</string>
+    <string name="stale_page">Page still shows a period that already reset · last reading kept</string>
     <string name="rate_limited">Rate limited</string>
     <string name="network_error">Network unavailable</string>
     <string name="needs_validation">Needs validation</string>

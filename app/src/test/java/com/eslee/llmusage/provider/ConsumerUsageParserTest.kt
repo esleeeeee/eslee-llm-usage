@@ -359,6 +359,24 @@ class ConsumerUsageParserTest {
         assertEquals(3, (ConsumerUsageParser.parse("chatgpt", "a", stated, now, localZone) as ProviderResult.Success).snapshot.resetCredits.size)
     }
 
+    /**
+     * Reported: Grok never changed and every refresh counted as a success. Usage in
+     * a window whose reset has passed is a cache from before the reset, not a reading;
+     * an idle window (nothing used) or a figure without a reset time is not judged.
+     */
+    @Test fun usageInAWindowThatAlreadyResetIsLapsed() {
+        val page = "매주 SuperGrok 한도\n52%\n중고\n2026년 9월 25일 오후 4:39 초기화"
+        val snapshot = (ConsumerUsageParser.parse("grok", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        val reset = snapshot.buckets.single().resetAt!!
+        assertFalse(ConsumerUsageParser.lapsed(snapshot, reset - 60_000))
+        assertFalse("a window rolls over a little late", ConsumerUsageParser.lapsed(snapshot, reset + 30 * 60_000))
+        assertTrue(ConsumerUsageParser.lapsed(snapshot, reset + 2 * 3_600_000))
+        val idle = (ConsumerUsageParser.parse("grok", "a", page.replace("52%", "0%"), now, localZone) as ProviderResult.Success).snapshot
+        assertFalse(ConsumerUsageParser.lapsed(idle, reset + 2 * 3_600_000))
+        val timeless = (ConsumerUsageParser.parse("grok", "a", "매주 SuperGrok 한도\n52%\n중고", now, localZone) as ProviderResult.Success).snapshot
+        assertFalse(ConsumerUsageParser.lapsed(timeless, reset + 2 * 3_600_000))
+    }
+
     /** Diagnostics start at a quota label, never at a sidebar line that happens to say "usage". */
     @Test fun diagnosticsAnchorOnTheQuotaLabelAndTheResetSection() {
         val lines = listOf("Chats", "My usage question", "매주 SuperGrok 한도", "52%", "중고")

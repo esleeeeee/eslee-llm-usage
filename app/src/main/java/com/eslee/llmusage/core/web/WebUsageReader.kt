@@ -142,14 +142,21 @@ class WebUsageReader(
                 // for data, with a cap for pages that never stop polling.
                 val quiet = now - lastRequest.get() >= QUIET
                 val settled = (now - stableSince >= STABLE && now - firstFigures >= SETTLE_MIN && quiet) || now - stableSince >= STABLE_CAP
-                if (settled && !awaitingResets) break
+                // Usage in a window that has already reset is a cache from before the reset:
+                // the page gets longer to replace it, and it is never saved as a reading.
+                val awaitingFresh = ConsumerUsageParser.lapsed(snapshot) && now - firstFigures < LAPSED_WAIT
+                if (settled && !awaitingResets && !awaitingFresh) break
             }
-            val outcome: ProviderResult = best ?: when {
+            val read = best
+            val outcome: ProviderResult = when {
+                read != null && ConsumerUsageParser.lapsed(read.snapshot) ->
+                    ProviderResult.Failure(ProviderErrorCode.STALE_PAGE, "페이지가 이미 초기화된 기간의 값을 보여 줍니다.")
+                read != null -> read
                 signInSince != 0L || verifying -> ProviderResult.Failure(ProviderErrorCode.AUTH_REQUIRED, "계정 로그인 확인이 필요합니다.")
                 partial != null -> ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
                 else -> ProviderResult.Failure(ProviderErrorCode.NETWORK_TIMEOUT, "사용량 페이지 응답 시간 초과")
             }
-            return finish(account, provider, started, outcome, lastPage, first, laterRequests.get())
+            return finish(account, provider, started, outcome, lastPage, first, laterRequests.get(), read)
         } finally {
             frames.release()
             // Providers rotate session cookies on each load; an unflushed rotation
@@ -167,20 +174,24 @@ class WebUsageReader(
      */
     private fun finish(
         account: Account, provider: ProviderDefinition, started: Long, outcome: ProviderResult,
-        page: Page?, first: ProviderResult.Success?, laterRequests: Int,
+        page: Page?, first: ProviderResult.Success?, laterRequests: Int, read: ProviderResult.Success? = null,
     ): ProviderResult {
         val elapsed = SystemClock.elapsedRealtime() - started
         val shown = first?.let { describeBuckets(it.snapshot) }
         val changed = if (outcome is ProviderResult.Success && shown != describeBuckets(outcome.snapshot)) " was[$shown]" else ""
-        val requests = if (outcome is ProviderResult.Success) " net+$laterRequests" else ""
-        WebTrace.record("bg-read", "${provider.id} \"${account.alias}\" ${elapsed}ms ${describe(outcome)}$changed$requests")
+        // A page that was read but not believed still shows what it said.
+        val rejected = if (outcome is ProviderResult.Failure && read != null) " [${describeBuckets(read.snapshot)}]" else ""
+        val requests = if (read != null) " net+$laterRequests" else ""
+        WebTrace.record("bg-read", "${provider.id} \"${account.alias}\" ${elapsed}ms ${describe(outcome)}$rejected$changed$requests")
         if (page == null) return outcome
         if (outcome is ProviderResult.Failure && page.text.isNotBlank()) WebTrace.record("bg-context", usageContext(page.text, provider.id))
-        if (outcome is ProviderResult.Success) {
+        if (read != null) {
             // Where a figure only the node walk reaches came from, so a wrong one can be traced to its node.
             val walked = page.rich.isNotBlank() &&
                 !ConsumerUsageParser.primaryHasNumbers(ConsumerUsageParser.parse(provider.id, account.id, page.text))
             if (walked) WebTrace.record("bg-source", "${provider.id} ${usageContext(page.rich, provider.id)}")
+        }
+        if (outcome is ProviderResult.Success) {
             if (provider.id in BANKED_RESETS) {
                 val section = ConsumerUsageParser.resetSection(page.text)?.take(RESET_LINES)?.joinToString(" | ")
                 WebTrace.record("bg-resets", "${provider.id} \"${account.alias}\" ${section ?: "no section"}")
@@ -247,6 +258,8 @@ class WebUsageReader(
         /** How long after the first figures a read keeps waiting for that list. */
         const val RESETS_WAIT = 7_000L
         const val RESCROLL = 2_000L
+        /** How long after the first figures a page showing an already reset window gets to replace it. */
+        const val LAPSED_WAIT = 10_000L
         private const val RESET_LINES = 12
 
         data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "")

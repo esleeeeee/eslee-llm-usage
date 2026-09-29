@@ -58,12 +58,15 @@ class WebUsageCollectionTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
         var used = 0
+        // Ahead of today: usage in a window whose reset has passed is no longer taken as a reading.
+        val reset = java.time.LocalDate.now().plusDays(3).atTime(7, 39)
+        val resetText = reset.format(java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy 'at' h:mm a", java.util.Locale.US))
         val reader = WebUsageReader(context) { web, _ ->
             web.loadDataWithBaseURL("https://grok.com/?_s=usage", """
                 <html><body><h2>Weekly SuperGrok Limit</h2>
                 <div>About your included usage</div>
                 <svg height="40"><text x="0" y="25"><tspan>$used</tspan><tspan>%</tspan></text></svg>
-                <div>used</div><div>Resets <span>September 25, 2026 at 7:39 AM</span></div>
+                <div>used</div><div>Resets <span>$resetText</span></div>
                 <h2>Extra Usage Credits</h2><div>${'$'}0.00</div></body></html>
             """.trimIndent(), "text/html", "UTF-8", "https://grok.com/?_s=usage")
         }
@@ -77,8 +80,7 @@ class WebUsageCollectionTest {
                 val bucket = snapshot.buckets.single { it.id == "weekly" }
                 assertEquals(value.toDouble(), bucket.usedPercent!!, 0.0)
                 assertEquals(100.0 - value, bucket.remainingPercent!!, 0.0)
-                val expected = java.time.LocalDateTime.of(2026, 9, 25, 7, 39)
-                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val expected = reset.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
                 assertEquals(expected, bucket.resetAt)
                 assertEquals(com.eslee.llmusage.core.model.SyncMode.BACKGROUND, snapshot.syncMode)
             }

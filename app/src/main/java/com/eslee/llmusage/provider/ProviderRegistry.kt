@@ -34,6 +34,8 @@ data class ProviderDefinition(
 enum class ProviderErrorCode {
     AUTH_REQUIRED, PERMISSION_DENIED, RATE_LIMITED, NETWORK, NETWORK_TIMEOUT,
     INVALID_RESPONSE, PARSE_FAILED, PARSER_OUTDATED, UNSUPPORTED, CONFIGURATION,
+    /** The page showed usage in a window that had already reset: what it cached, not a reading. */
+    STALE_PAGE,
 }
 sealed interface ProviderResult {
     data class Success(val snapshot: UsageSnapshot) : ProviderResult

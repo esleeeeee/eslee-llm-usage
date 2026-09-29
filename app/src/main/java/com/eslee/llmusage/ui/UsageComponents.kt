@@ -44,6 +44,8 @@ internal fun statusInfo(account: Account, snapshot: UsageSnapshot?, staleHours: 
         !account.enabled -> R.string.disabled to Severity.WARN
         account.lastErrorCode in setOf("AUTH_REQUIRED", "PERMISSION_DENIED") -> R.string.needs_auth to Severity.ERROR
         account.lastErrorCode in setOf("PARSE_FAILED", "PARSER_OUTDATED", "INVALID_RESPONSE") -> R.string.parse_failed to Severity.ERROR
+        // The page is signed in and readable, but showed a period that had already reset.
+        account.lastErrorCode == "STALE_PAGE" -> R.string.stale_page to Severity.WARN
         account.lastErrorCode == "RATE_LIMITED" -> R.string.rate_limited to Severity.WARN
         account.lastErrorCode in setOf("NETWORK", "NETWORK_TIMEOUT") -> R.string.network_error to Severity.WARN
         account.lastErrorCode == "NEEDS_VALIDATION" -> R.string.needs_validation to Severity.WARN

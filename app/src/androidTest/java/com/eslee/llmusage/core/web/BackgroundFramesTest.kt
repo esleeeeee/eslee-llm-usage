@@ -65,16 +65,24 @@ class BackgroundFramesTest {
         assertTrue("an element scrolled into view was never reported visible: $drawn", drawn.getBoolean("bottom"))
     }
 
-    /** A page that paints a cached figure and replaces it from a frame callback, the way SWR revalidates. */
+    /**
+     * A page that paints what it cached before last week's reset and replaces it from
+     * a frame callback, the way SWR revalidates cached data. The fresh figure is read.
+     */
     @Test fun aFigureThePageRefreshesOnAFrameReplacesTheCachedOne(): Unit = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        val lastWeek = moment(-3)
+        val thisWeek = moment(3)
         val reader = WebUsageReader(context) { web, _ ->
             web.loadDataWithBaseURL("https://grok.com/?_s=usage", """
                 <html><body><h2>매주 SuperGrok 한도</h2>
                 <div id="used">12%</div><div>중고</div>
-                <div>2026년 10월 2일 오후 4:39 초기화</div>
+                <div id="reset">${korean(lastWeek)} 초기화</div>
                 <script>
-                  setTimeout(function(){ requestAnimationFrame(function(){ document.getElementById('used').textContent = '52%'; }); }, 1500);
+                  setTimeout(function(){ requestAnimationFrame(function(){
+                    document.getElementById('used').textContent = '52%';
+                    document.getElementById('reset').textContent = '${korean(thisWeek)} 초기화';
+                  }); }, 1500);
                 </script></body></html>
             """.trimIndent(), "text/html", "UTF-8", "https://grok.com/?_s=usage")
         }
@@ -85,6 +93,24 @@ class BackgroundFramesTest {
             val weekly = requireNotNull(repository.latest(id)).buckets.single { it.id == "weekly" }
             assertEquals(52.0, weekly.usedPercent!!, 0.0)
             assertEquals(48.0, weekly.remainingPercent!!, 0.0)
+            assertEquals(thisWeek.toInstant().toEpochMilli(), weekly.resetAt)
+        } finally { repository.deleteAccount(id); database.close() }
+    }
+
+    /** A page that only ever shows the period before its reset is not saved as a reading, and the last one stays. */
+    @Test fun aPageStuckBeforeItsResetIsNotASuccess(): Unit = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        val reader = WebUsageReader(context) { _, _ -> error("not loaded in this test") }
+        val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
+        val id = repository.addAccount("grok", "Lapsed page")
+        try {
+            val current = repository.recordWeb(id, "매주 SuperGrok 한도\n30%\n중고\n${korean(moment(3))} 초기화")
+            assertTrue("current page: $current", current is com.eslee.llmusage.provider.ProviderResult.Success)
+            val kept = repository.latest(id)?.snapshotId
+            val stale = repository.recordWeb(id, "매주 SuperGrok 한도\n12%\n중고\n${korean(moment(-3))} 초기화")
+            assertEquals(com.eslee.llmusage.provider.ProviderErrorCode.STALE_PAGE, (stale as com.eslee.llmusage.provider.ProviderResult.Failure).code)
+            assertEquals(kept, repository.latest(id)?.snapshotId)
+            assertEquals("STALE_PAGE", repository.account(id)?.lastErrorCode)
         } finally { repository.deleteAccount(id); database.close() }
     }
 
@@ -135,6 +161,14 @@ class BackgroundFramesTest {
             web.destroy()
         }
     }
+
+    /** 4:39 PM on the day [days] from today, local time: reset times stay on the right side of now as the calendar moves. */
+    private fun moment(days: Long): java.time.ZonedDateTime =
+        java.time.LocalDate.now().plusDays(days).atTime(16, 39).atZone(java.time.ZoneId.systemDefault())
+
+    /** The way Grok's Korean page writes a moment: "2026년 10월 2일 오후 4:39". */
+    private fun korean(at: java.time.ZonedDateTime): String =
+        "${at.year}년 ${at.monthValue}월 ${at.dayOfMonth}일 ${if (at.hour < 12) "오전" else "오후"} ${(at.hour + 11) % 12 + 1}:${"%02d".format(at.minute)}"
 
     private suspend fun evaluate(web: WebView, script: String): String = suspendCancellableCoroutine { continuation ->
         web.evaluateJavascript(script) { encoded -> continuation.resume(JSONTokener(encoded).nextValue() as? String ?: "{}") }

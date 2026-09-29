@@ -171,10 +171,15 @@ class UsageRepository(
             ?: return ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "계정을 사용할 수 없습니다.")
         val started = System.currentTimeMillis()
         val parsed = withContext(Dispatchers.Default) { ConsumerUsageParser.parseBest(account.providerId, id, text, richText, started) }
-        // A page that has not drawn its main quota must not replace the last good reading.
-        val result = if (parsed is ProviderResult.Success && !ConsumerUsageParser.primaryHasNumbers(parsed)) {
-            ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
-        } else parsed
+        // A page that has not drawn its main quota, or still shows a window that has
+        // already reset, must not replace the last good reading.
+        val result = when {
+            parsed is ProviderResult.Success && !ConsumerUsageParser.primaryHasNumbers(parsed) ->
+                ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
+            parsed is ProviderResult.Success && ConsumerUsageParser.lapsed(parsed.snapshot, started) ->
+                ProviderResult.Failure(ProviderErrorCode.STALE_PAGE, "페이지가 이미 초기화된 기간의 값을 보여 줍니다.")
+            else -> parsed
+        }
         if (result is ProviderResult.Success || recordFailure) {
             saveResult(account, result, started)
             updateWidgets(context)

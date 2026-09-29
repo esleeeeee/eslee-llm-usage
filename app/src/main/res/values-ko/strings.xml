@@ -62,6 +62,7 @@
     <string name="stale">오래된 데이터</string>
     <string name="needs_auth">다시 로그인 필요</string>
     <string name="parse_failed">사용량 읽기 실패 · 페이지 구조 변경 가능성</string>
+    <string name="stale_page">페이지가 초기화 전 값을 표시 · 마지막 값 유지</string>
     <string name="rate_limited">요청 제한</string>
     <string name="network_error">네트워크 연결 실패</string>
     <string name="needs_validation">연결 확인 필요</string>
