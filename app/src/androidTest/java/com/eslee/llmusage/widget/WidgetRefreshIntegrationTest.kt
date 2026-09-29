@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -114,6 +115,11 @@ class WidgetRefreshIntegrationTest {
             repeat(2) {
                 val snapshotsBefore = accountIds.associateWith { repository.latest(it)!!.snapshotId }
                 val workBefore = workInfos().map { it.id }.toSet()
+                // A host can replace its views right after the widget's first render and drop a
+                // click it already received (CI: tap 1s after the Glance session started, no work
+                // ever enqueued). Tapping once more is how a person reacts; a handler that never
+                // fires still fails both taps.
+                suspend fun tap(label: String) {
                 var stableTarget: View? = null
                 var stableBounds: Rect? = null
                 var stableSince = SystemClock.uptimeMillis()
@@ -146,7 +152,7 @@ class WidgetRefreshIntegrationTest {
                                     stableTarget = target
                                     stableBounds = Rect(bounds)
                                     stableSince = now
-                                } else if (now - stableSince >= 500) {
+                                } else if (now - stableSince >= 1_500) {
                                     // Binding/configuration can replace RemoteViews after the first
                                     // layout. Wait for the same visible target to settle before input.
                                     target.setOnTouchListener { _, event ->
@@ -155,7 +161,7 @@ class WidgetRefreshIntegrationTest {
                                         false // Observe delivery; keep the installed PendingIntent click.
                                     }
                                     touchPoint = (bounds.left + 3 * density) to (bounds.top + 3 * density)
-                                    touchTrace += "tap ${it + 1}: bounds=$bounds point=$touchPoint focus=${hostView.hasWindowFocus()}"
+                                    touchTrace += "$label: bounds=$bounds point=$touchPoint focus=${hostView.hasWindowFocus()}"
                                     Log.i("WidgetTouchTest", touchTrace.last())
                                 }
                             } else {
@@ -183,6 +189,20 @@ class WidgetRefreshIntegrationTest {
                     assertEquals("Refresh target did not receive a complete touch: $touchTrace",
                         listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP), deliveredActions.toList())
                     stableTarget?.setOnTouchListener(null)
+                }
+                }
+                tap("tap ${it + 1}")
+                val started = withTimeoutOrNull(10_000) {
+                    while (workInfos().none { info -> info.id !in workBefore }) delay(100)
+                    true
+                } == true
+                if (!started) {
+                    // Still showing "Refresh all accounts" means the action never ran.
+                    var idle = false
+                    instrumentation.runOnMainSync {
+                        idle = descendants(hostView).any { view -> view.contentDescription == context.getString(R.string.widget_refresh) }
+                    }
+                    if (idle) tap("retap ${it + 1}")
                 }
                 withTimeout(60_000) {
                     while (true) {
