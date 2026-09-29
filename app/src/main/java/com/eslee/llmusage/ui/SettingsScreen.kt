@@ -89,7 +89,11 @@ internal fun SettingsScreen(
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 )
                 HorizontalDivider()
-                LinkRow(stringResource(R.string.update_check_now), null, onClick = onCheckUpdate)
+                // When GitHub last answered: the app asks each time it comes to the front, so a
+                // time that stops moving means the checks are failing, not that nothing is new.
+                LinkRow(stringResource(R.string.update_check_now),
+                    settings.updateCheckedAt.takeIf { it > 0 }?.let { stringResource(R.string.update_checked_at, timeLabel(it)) },
+                    onClick = onCheckUpdate)
                 LinkRow(stringResource(R.string.diagnostics), stringResource(R.string.diagnostics_body), onClick = onDiagnostics)
                 LinkRow(stringResource(R.string.provider_status), null, last = true, onClick = onProviders)
             }

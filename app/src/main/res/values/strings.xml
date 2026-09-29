@@ -169,6 +169,7 @@
     <string name="update_skip">Skip this version</string>
     <string name="update_later">Later</string>
     <string name="update_check_now">Check for a new version now</string>
+    <string name="update_checked_at">Last checked %1$s</string>
     <string name="update_latest">You have the latest version (%1$s)</string>
     <string name="update_check_failed">Could not reach GitHub to check for a new version</string>
 </resources>

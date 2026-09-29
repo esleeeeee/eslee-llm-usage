@@ -53,14 +53,44 @@ class UpdateCheckerTest {
     @Test fun aFailedCheckIsNotMistakenForTheLatestVersion() = kotlinx.coroutines.runBlocking {
         okhttp3.mockwebserver.MockWebServer().use { server ->
             server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(403).setBody("""{"message":"API rate limit exceeded"}"""))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(503))
             server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(listing))
             server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(listing))
-            val checker = UpdateChecker(server.url("/releases").toString())
-            assertEquals(UpdateChecker.Outcome.Failed, checker.check("0.2.4"))
+            val checker = UpdateChecker(server.url("/releases").toString(), server.url("/feed").toString())
+            val failed = checker.check("0.2.4")
+            assertTrue("$failed", failed is UpdateChecker.Outcome.Failed)
+            assertEquals("api http 403, feed http 503", (failed as UpdateChecker.Outcome.Failed).reason)
             val newer = checker.check("0.2.4")
             assertTrue(newer is UpdateChecker.Outcome.Newer)
             assertEquals("0.2.5", (newer as UpdateChecker.Outcome.Newer).available.version)
             assertEquals(UpdateChecker.Outcome.Current, checker.check("0.2.5"))
+        }
+    }
+
+    /**
+     * Reported: 0.2.8 never offered 0.2.9. The Releases API allows 60 requests an hour per
+     * IP address, which a shared network uses up; the release feed then answers instead.
+     */
+    @Test fun theReleaseFeedAnswersWhenTheApiRefuses() = kotlinx.coroutines.runBlocking {
+        val feed = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <link type="text/html" rel="alternate" href="https://github.com/esleeeeee/eslee-llm-usage/releases"/>
+              <entry><title>eslee LLM Usage v0.2.9</title>
+                <link rel="alternate" type="text/html" href="https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.2.9"/></entry>
+              <entry><title>eslee LLM Usage v0.2.10</title>
+                <link rel="alternate" type="text/html" href="https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.2.10"/></entry>
+            </feed>
+        """.trimIndent()
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(403).setBody("""{"message":"API rate limit exceeded"}"""))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(feed))
+            val newer = UpdateChecker(server.url("/releases").toString(), server.url("/feed").toString()).check("0.2.9")
+            assertTrue("$newer", newer is UpdateChecker.Outcome.Newer)
+            val found = (newer as UpdateChecker.Outcome.Newer).available
+            assertEquals("0.2.10", found.version)
+            assertEquals("https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.2.10", found.page)
+            assertNull("the feed has no assets; the release page is opened instead", found.apk)
         }
     }
 }

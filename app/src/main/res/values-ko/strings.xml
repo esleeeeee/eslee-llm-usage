@@ -169,6 +169,7 @@
     <string name="update_skip">이 버전 건너뛰기</string>
     <string name="update_later">나중에</string>
     <string name="update_check_now">지금 새 버전 확인</string>
+    <string name="update_checked_at">마지막 확인 %1$s</string>
     <string name="update_latest">최신 버전입니다 (%1$s)</string>
     <string name="update_check_failed">GitHub에 연결하지 못해 새 버전을 확인하지 못했습니다</string>
 </resources>

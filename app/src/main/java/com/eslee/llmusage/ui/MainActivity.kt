@@ -36,6 +36,7 @@ import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.core.model.Account
 import com.eslee.llmusage.core.model.AuthMode
 import com.eslee.llmusage.core.web.ProviderWebActivity
+import com.eslee.llmusage.core.web.WebTrace
 import com.eslee.llmusage.core.web.enableEdgeToEdgeContent
 import com.eslee.llmusage.provider.ProviderResult
 import com.eslee.llmusage.settings.AppSettings
@@ -45,8 +46,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 
-/** How long an answer from GitHub is trusted before the app asks again. */
-private const val UPDATE_CHECK_INTERVAL = 30 * 60_000L
 /** How long after the app opens before it asks GitHub at all. */
 private const val UPDATE_CHECK_DELAY = 5_000L
 
@@ -132,24 +131,34 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     var update by remember { mutableStateOf<UpdateChecker.Available?>(null) }
     val latestVersion = stringResource(R.string.update_latest, BuildConfig.VERSION_NAME)
     val checkFailed = stringResource(R.string.update_check_failed)
-    /** Asks GitHub; only an answer counts as a check, so an offline attempt is simply tried next time. */
+    /**
+     * Asks GitHub and leaves the answer in the diagnostics, so a prompt that did not
+     * appear shows why. Only an answer counts as a check; an offline attempt is simply
+     * tried the next time the app comes to the front.
+     */
     suspend fun checkForUpdate(): UpdateChecker.Outcome {
-        val outcome = UpdateChecker().check(BuildConfig.VERSION_NAME)
+        val outcome = graph.updateCheck(BuildConfig.VERSION_NAME)
+        WebTrace.record("update", when (outcome) {
+            is UpdateChecker.Outcome.Newer -> "${outcome.available.version} is newer than ${BuildConfig.VERSION_NAME}"
+            UpdateChecker.Outcome.Current -> "${BuildConfig.VERSION_NAME} is the latest"
+            is UpdateChecker.Outcome.Failed -> "check failed: ${outcome.reason}"
+        })
         // A transactional edit: a theme the user picks meanwhile must not be put back.
-        if (outcome != UpdateChecker.Outcome.Failed) runCatching { graph.settings.edit { it.copy(updateCheckedAt = System.currentTimeMillis()) } }
+        if (outcome !is UpdateChecker.Outcome.Failed) runCatching { graph.settings.edit { it.copy(updateCheckedAt = System.currentTimeMillis()) } }
         return outcome
     }
-    // Checked each time the app comes to the front. It used to be once when the screen was
-    // first built and then not for six hours, so a release made after the morning's check
-    // went unnoticed for the rest of the day (reported on 0.2.6 -> 0.2.7).
+    // Checked every time the app comes to the front, with no waiting period after an answer.
+    // Reported twice: 0.2.6 checked once per six hours and 0.2.8 trusted an answer for thirty
+    // minutes, so opening the app soon after an earlier look missed a release made in between.
     LaunchedEffect(lifecycleOwner, settings.updatePrompts) {
         if (!settings.updatePrompts) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             // Let the screen settle first: a prompt that pops the moment the app opens is in the
-            // way, and the TLS handshake is work the first taps should not compete with.
+            // way, and the TLS handshake is work the first taps should not compete with. Leaving
+            // again within this time also cancels the check, so quick switches cost nothing.
             delay(UPDATE_CHECK_DELAY)
             val stored = graph.settings.current()
-            if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@repeatOnLifecycle
+            if (!stored.updatePrompts) return@repeatOnLifecycle
             val outcome = checkForUpdate()
             if (outcome is UpdateChecker.Outcome.Newer && outcome.available.version != stored.updateSkipped) update = outcome.available
         }
@@ -159,7 +168,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         when (val outcome = checkForUpdate()) {
             is UpdateChecker.Outcome.Newer -> update = outcome.available
             UpdateChecker.Outcome.Current -> snackbar.showSnackbar(latestVersion)
-            UpdateChecker.Outcome.Failed -> snackbar.showSnackbar(checkFailed)
+            is UpdateChecker.Outcome.Failed -> snackbar.showSnackbar(checkFailed)
         }
     }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {

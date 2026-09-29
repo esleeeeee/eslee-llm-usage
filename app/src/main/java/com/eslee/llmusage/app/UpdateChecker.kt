@@ -10,12 +10,17 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * Asks GitHub Releases, prereleases included, whether a build newer than the
- * installed one has been published. Nothing about the device is sent: it is
- * the same public listing the release page shows.
+ * Asks GitHub, prereleases included, whether a build newer than the installed one
+ * has been published. Nothing about the device is sent: it is the same public
+ * listing the release page shows.
+ *
+ * The Releases API answers 60 unauthenticated requests an hour per IP address, and
+ * a shared office network can use that up. The release feed is a plain page outside
+ * that limit, so it is asked whenever the API does not answer.
  */
 class UpdateChecker(
     private val endpoint: String = RELEASES,
+    private val feed: String = FEED,
     private val client: OkHttpClient = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build(),
 ) {
     @Serializable data class Asset(val name: String, @SerialName("browser_download_url") val url: String)
@@ -36,25 +41,43 @@ class UpdateChecker(
     sealed interface Outcome {
         data class Newer(val available: Available) : Outcome
         data object Current : Outcome
-        data object Failed : Outcome
+        /** Neither source answered; [reason] says how each failed, for the diagnostics. */
+        data class Failed(val reason: String) : Outcome
     }
 
     suspend fun check(installed: String): Outcome = withContext(Dispatchers.IO) {
-        runCatching {
-            client.newCall(Request.Builder().url(endpoint).header("Accept", "application/vnd.github+json").build()).execute().use { response ->
-                val releases = if (response.isSuccessful) parse(response.body?.string().orEmpty()) else emptyList()
-                // An empty or unreadable listing says nothing about what is published.
-                if (releases.isEmpty()) Outcome.Failed
-                else available(releases, installed)?.let { Outcome.Newer(it) } ?: Outcome.Current
-            }
-        }.getOrDefault(Outcome.Failed)
+        val api = listing(endpoint, "application/vnd.github+json", ::parse)
+        val releases = api.releases ?: run {
+            val fromFeed = listing(feed, "application/atom+xml", ::parseFeed)
+            fromFeed.releases ?: return@withContext Outcome.Failed("api ${api.problem}, feed ${fromFeed.problem}")
+        }
+        available(releases, installed)?.let { Outcome.Newer(it) } ?: Outcome.Current
+    }
+
+    /** One source's answer: the releases it lists, or why there are none. An empty listing says nothing. */
+    private class Listing(val releases: List<Release>?, val problem: String)
+
+    // Any failure is an answer of "unknown": the check runs from the screen, where a throw would end the app.
+    private fun listing(url: String, accept: String, read: (String) -> List<Release>): Listing = try {
+        client.newCall(Request.Builder().url(url).header("Accept", accept).build()).execute().use { response ->
+            if (!response.isSuccessful) Listing(null, "http ${response.code}")
+            else read(response.body?.string().orEmpty()).let { if (it.isEmpty()) Listing(null, "unreadable") else Listing(it, "") }
+        }
+    } catch (error: Exception) {
+        Listing(null, error.javaClass.simpleName)
     }
 
     companion object {
         const val RELEASES = "https://api.github.com/repos/esleeeeee/eslee-llm-usage/releases?per_page=5"
+        const val FEED = "https://github.com/esleeeeee/eslee-llm-usage/releases.atom"
         private val json = Json { ignoreUnknownKeys = true }
+        private val feedEntry = Regex("""href="([^"]*/releases/tag/([^"/]+))"""")
 
         fun parse(body: String): List<Release> = runCatching { json.decodeFromString<List<Release>>(body) }.getOrDefault(emptyList())
+
+        /** The feed names each release by its page; it carries no assets, so the page is what gets opened. */
+        fun parseFeed(body: String): List<Release> =
+            feedEntry.findAll(body).map { Release(tag = it.groupValues[2], page = it.groupValues[1]) }.distinctBy { it.tag }.toList()
 
         fun available(releases: List<Release>, installed: String): Available? {
             val newest = releases.filter { !it.draft }.maxWithOrNull { a, b -> compare(a.tag, b.tag) } ?: return null

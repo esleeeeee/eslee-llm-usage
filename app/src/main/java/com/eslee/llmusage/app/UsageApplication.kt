@@ -35,4 +35,6 @@ class AppGraph @Inject constructor(@ApplicationContext context: Context) {
     val credentials = CredentialStore(context)
     val settings = SettingsStore(context)
     val repository = UsageRepository(context, database, registry, credentials, settings)
+    /** Asks GitHub for a newer build. Replaced in tests, which must not depend on what is published. */
+    var updateCheck: suspend (installed: String) -> UpdateChecker.Outcome = { installed -> UpdateChecker().check(installed) }
 }
