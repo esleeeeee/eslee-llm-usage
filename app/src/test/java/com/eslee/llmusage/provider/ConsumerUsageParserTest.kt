@@ -377,6 +377,48 @@ class ConsumerUsageParserTest {
         assertFalse(ConsumerUsageParser.lapsed(timeless, reset + 2 * 3_600_000))
     }
 
+    /**
+     * Reported on v0.2.8 with the phone's own trace: Grok showed 2% used while its
+     * page said 52%. The page animates its figure one character per node, so the walk
+     * reads "5 | 2 | %", and only the "2" beside the sign was taken. The product share
+     * between the figure and the date also hid the weekly reset.
+     */
+    @Test fun grokFigureDrawnOneCharacterPerNodeIsReadWhole() {
+        val walked = listOf(
+            "매주 SuperGrok 한도", "52%", "5", "2", "%", "중고", "Imagine", "52", "%",
+            "2026년 10월 2일 오후 4:39", "초기화", "추가 사용 크레딧", "US\$0.00", "US\$", "0", ".", "0", "0",
+        ).joinToString("\n")
+        val snapshot = (ConsumerUsageParser.parse("grok", "a", walked, now, localZone) as ProviderResult.Success).snapshot
+        val weekly = snapshot.buckets.single()
+        assertEquals(52.0, weekly.usedPercent!!, 0.0)
+        assertEquals(48.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(java.time.ZonedDateTime.of(2026, 10, 2, 16, 39, 0, 0, localZone).toInstant().toEpochMilli(), weekly.resetAt)
+        val decimal = (ConsumerUsageParser.parse("grok", "a", "매주 SuperGrok 한도\n5\n2\n.\n5\n%\n중고", now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(52.5, decimal.buckets.single().usedPercent!!, 0.0)
+    }
+
+    /**
+     * Reported on v0.2.8: the Pro account showed a 5-hour limit with no figure. Its
+     * page has no 5-hour limit; the banked-reset section's own sentence ("재설정을 사용해
+     * 5시간 한도, 주간 한도 …") was taken for one. Its count sits on the line after "사용 가능".
+     */
+    @Test fun theResetSectionNeverOpensAQuotaAndItsCountIsRead() {
+        val pro = listOf(
+            "주간 사용 한도", "76%", "남음", "2026. 10. 3. 오후 1:21 초기화",
+            "사용량 한도 재설정", "재설정을 사용해 5시간 한도, 주간 한도 또는 둘 다를 복원하세요.", "사용 가능", "3", "내역",
+            "전체 재설정", "10월 4일 오전 10:58에 만료", "재설정 사용",
+            "전체 재설정", "10월 5일 오후 1:21에 만료", "재설정 사용", "자동 충전",
+        ).joinToString("\n")
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", pro, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals(24.0, snapshot.buckets.single().usedPercent!!, 0.0)
+        assertEquals("the page says three; two are listed so far", 3, snapshot.resetCredits.size)
+        // The Plus page, with its real 5-hour limit and "(주간 + 5시간)" credits, keeps both limits.
+        val plus = (parsed("chatgpt", "usage_codex_korean") as ProviderResult.Success).snapshot
+        assertEquals(listOf("session", "weekly"), plus.buckets.map { it.id })
+        assertEquals(45.0, plus.buckets.first { it.id == "session" }.remainingPercent!!, 0.0)
+    }
+
     /** Diagnostics start at a quota label, never at a sidebar line that happens to say "usage". */
     @Test fun diagnosticsAnchorOnTheQuotaLabelAndTheResetSection() {
         val lines = listOf("Chats", "My usage question", "매주 SuperGrok 한도", "52%", "중고")

@@ -13,8 +13,8 @@ android {
         applicationId = "com.eslee.llmusage"
         minSdk = 28
         targetSdk = 37
-        versionCode = 26
-        versionName = "0.2.8"
+        versionCode = 27
+        versionName = "0.2.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }

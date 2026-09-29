@@ -12,7 +12,7 @@ import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.3"
+    const val VERSION = "1.2.4"
     /** A quota label opens a limit of its own; any other label only ends the section before it. */
     private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
     private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
@@ -56,14 +56,23 @@ object ConsumerUsageParser {
     ): ProviderResult {
         val dictionary = labels[providerId] ?: return ProviderResult.Failure(ProviderErrorCode.UNSUPPORTED, "이 서비스의 화면 파서는 지원하지 않습니다.")
         if (visibleText.length > 1_000_000) return ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "화면 텍스트가 너무 큽니다.")
-        // A number and its percent sign can be separate DOM text nodes. Join only
-        // that exact adjacent pair; the used/remaining meaning is still required.
-        val normalized = visibleText.replace(Regex("(?m)^(\\s*\\d{1,3}(?:[.]\\d+)?)[ \\t]*\\r?\\n[ \\t]*%"), "$1%")
-        val lines = normalized.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
-        val matches = lines.mapIndexedNotNull { index, line -> dictionary.firstOrNull { it.pattern.containsMatchIn(line) }?.let { index to it } }
+        val lines = joinSplitFigures(visibleText.lineSequence().map(String::trim).filter(String::isNotBlank).toList())
+        // The banked-reset section explains itself in quota words ("재설정을 사용해 5시간
+        // 한도, 주간 한도 …를 복원하세요", "전체 재설정(주간 + 5시간)"). Taken as a label, that
+        // made a 5-hour limit with no figure and a reset time borrowed from a credit's
+        // expiry, on an account whose page has no 5-hour limit at all. Inside the section
+        // a line about resets is never a quota; a real quota heading has no reset word.
+        val resets = resetSectionRange(lines)
+        val matches = lines.mapIndexedNotNull { index, line ->
+            if (resets?.contains(index) == true && creditItem.containsMatchIn(line)) null
+            else dictionary.firstOrNull { it.pattern.containsMatchIn(line) }?.let { index to it }
+        }
         val buckets = matches.mapIndexedNotNull { index, (start, label) ->
             if (!label.quota) return@mapIndexedNotNull null
             val nextLabel = matches.getOrNull(index + 1)?.first ?: lines.size
+            // A product's share below Grok's weekly limit ends the figures, not the limit:
+            // the reset time is printed after the shares.
+            val nextQuota = matches.drop(index + 1).firstOrNull { it.second.quota }?.first ?: lines.size
             val stop = Regex("Extra Usage Credits|upgrade|special offer|save \\d|업그레이드|할인", RegexOption.IGNORE_CASE)
             val end = minOf(nextLabel, start + 6)
             val sectionLines = lines.subList(start, end).takeWhile { !stop.containsMatchIn(it) }
@@ -75,8 +84,10 @@ object ConsumerUsageParser {
             // The structural capture gives every node its own line, and a progress
             // bar's aria value or a CSS-drawn figure each take one, so the reset
             // time can sit well past the six lines the figures are read from. It
-            // is looked for further down, still stopping at the next quota.
-            val resetWindow = lines.subList(start, minOf(nextLabel, start + 24)).takeWhile { !stop.containsMatchIn(it) }
+            // is looked for further down, still stopping at the next quota and
+            // before a banked-reset offer, whose expiry is not this quota's reset.
+            val resetWindow = lines.subList(start, minOf(nextQuota, start + 24))
+                .takeWhile { !stop.containsMatchIn(it) && !resetsHeader.containsMatchIn(it) }
             val resetAt = parseReset(section, fetchedAt, localZone) ?: parseReset(resetWindow.joinToString("\n"), fetchedAt, localZone)
             if (percentValues.used == null && percentValues.remaining == null && used == null && resetAt == null) null
             else UsageNormalizer.normalize(UsageBucket(label.id, if (label.id == "model") lines[start] else label.title,
@@ -123,6 +134,14 @@ object ConsumerUsageParser {
         return lines.indexOfFirst { line -> quotas.any { it.pattern.containsMatchIn(line) } }
     }
 
+    /** Lines of the banked-reset section, header through the line before the next section; null when there is none. */
+    private fun resetSectionRange(lines: List<String>): IntRange? {
+        val header = lines.indexOfFirst { resetsHeader.containsMatchIn(it) }
+        if (header < 0) return null
+        val end = (header + 1 until lines.size).firstOrNull { resetsStop.containsMatchIn(lines[it]) } ?: lines.size
+        return header until end
+    }
+
     /** The banked-reset section as the page lists it, header first, for diagnostics; null when the page has none. */
     fun resetSection(text: String): List<String>? {
         val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
@@ -145,6 +164,34 @@ object ConsumerUsageParser {
         val resetAt = primary.resetAt ?: return false
         val used = UsageNormalizer.usedPercent(primary) ?: return false
         return used > 0.0 && resetAt < now - LAPSE_GRACE
+    }
+
+    private val figurePart = Regex("\\d+(?:\\.\\d+)?|\\.")
+    private val figure = Regex("\\d{1,3}(?:\\.\\d+)?")
+
+    /**
+     * Animated counters give every character its own node, so the node walk reads
+     * "52%" as "5", "2", "%" on lines of their own. Only the "2" beside the sign was
+     * taken: Grok showed 2% used while its page said 52%. A run of digit lines that
+     * ends at a line opening with the percent sign is one figure again; a number and
+     * its sign drawn as two nodes ("35", "%") are the shortest such run.
+     */
+    private fun joinSplitFigures(lines: List<String>): List<String> {
+        val joined = ArrayList<String>(lines.size)
+        var index = 0
+        while (index < lines.size) {
+            var end = index
+            while (end < lines.size && figurePart.matches(lines[end])) end++
+            val digits = lines.subList(index, end).joinToString("")
+            if (end > index && end < lines.size && lines[end].startsWith("%") && figure.matches(digits)) {
+                joined += digits + lines[end]
+                index = end + 1
+            } else {
+                joined += lines[index]
+                index++
+            }
+        }
+        return joined
     }
 
     fun hasNumbers(bucket: UsageBucket): Boolean =
@@ -261,6 +308,7 @@ object ConsumerUsageParser {
     /** The button each banked reset carries; one per reset even where the page prints no expiry. */
     private val creditAction = Regex("^(?:재설정 사용|재설정 사용하기|use reset|use this reset|use)$", RegexOption.IGNORE_CASE)
     /** A count stated inside the section ("3개 사용 가능", "사용 가능 3개"), too generic to trust elsewhere on the page. */
+    private val availableLabel = Regex("^(?:사용 가능|available)$", RegexOption.IGNORE_CASE)
     private val sectionCount = Regex("(\\d+)\\s*개\\s*(?:사용 가능|남음|보유)|사용 가능(?:한)?\\s*(?:재설정)?\\s*(\\d+)\\s*개?$|^(\\d+)\\s*(?:available|left)$", RegexOption.IGNORE_CASE)
     private val monthNames = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
@@ -297,6 +345,8 @@ object ConsumerUsageParser {
         // A page may state a count beside an abbreviated list, or list a reset without
         // printing its expiry; the count, or one button per reset, is what the user has.
         val stated = section.firstNotNullOfOrNull { line -> sectionCount.find(line)?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toIntOrNull() } }
+            // The live page draws the word and its number as separate nodes: "사용 가능 | 3".
+            ?: section.indices.firstNotNullOfOrNull { i -> section[i].takeIf { availableLabel.matches(it) }?.let { section.getOrNull(i + 1)?.toIntOrNull() } }
         val buttons = section.count { creditAction.matches(it) }
         val count = maxOf(explicit ?: 0, stated ?: 0, buttons)
         while (credits.size < count) credits += ResetCredit(lastLabel)

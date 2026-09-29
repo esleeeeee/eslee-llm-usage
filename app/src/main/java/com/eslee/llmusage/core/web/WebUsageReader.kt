@@ -128,8 +128,6 @@ class WebUsageReader(
                     figuresShownAt.set(now)
                     first = best
                     firstPageTime = page.time
-                    // The page is up with whatever it cached: now tell it the user came back.
-                    wake(web)
                 }
                 // Banked resets sit at the bottom of the Codex page and can arrive after the
                 // limits, or render only once scrolled to. Reported: an account holding three
@@ -161,12 +159,13 @@ class WebUsageReader(
                 partial != null -> ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
                 else -> ProviderResult.Failure(ProviderErrorCode.NETWORK_TIMEOUT, "사용량 페이지 응답 시간 초과")
             }
-            if (read != null) {
-                // Whether the page asked the network for its data during this read, or took it
-                // from a cache, is what tells a stale figure's cause apart.
-                val walked = lastPage?.let { it.rich.isNotBlank() && !ConsumerUsageParser.primaryHasNumbers(ConsumerUsageParser.parse(provider.id, account.id, it.text)) } == true
-                probe(web, NETWORK_JS)?.let { WebTrace.recordLong("bg-net", "${provider.id} figures@${firstPageTime / 100 / 10.0}s $it") }
-                if (walked) probe(web, STORAGE_JS)?.let { WebTrace.recordLong("bg-storage", "${provider.id} $it", maxLines = 2) }
+            if (outcome is ProviderResult.Failure) {
+                // Whether the page asked for its data at all, when, and from where tells a
+                // page that never loaded it from one that loaded something else.
+                probe(web, NETWORK_JS)?.let { network ->
+                    val figures = if (firstPageTime > 0) " figures@${firstPageTime / 100 / 10.0}s" else ""
+                    WebTrace.recordLong("bg-net", "${provider.id}$figures $network")
+                }
             }
             return finish(account, provider, started, outcome, lastPage, first, laterRequests.get(), read)
         } finally {
@@ -196,6 +195,10 @@ class WebUsageReader(
         WebTrace.record("bg-read", "${provider.id} \"${account.alias}\" ${elapsed}ms ${describe(outcome)}$rejected$changed$requests")
         if (page == null) return outcome
         if (outcome is ProviderResult.Failure && page.text.isNotBlank()) WebTrace.record("bg-context", usageContext(page.text, provider.id))
+        // A limit found without its figure is shown as unknown; the lines under it say why.
+        if (outcome is ProviderResult.Success && outcome.snapshot.buckets.any { !ConsumerUsageParser.hasNumbers(it) }) {
+            WebTrace.record("bg-context", usageContext(page.text, provider.id))
+        }
         if (read != null) {
             // Where a figure only the node walk reaches came from, so a wrong one can be traced to its node.
             val walked = page.rich.isNotBlank() &&
@@ -230,30 +233,10 @@ class WebUsageReader(
         const val RESCROLL = 2_000L
         /** How long after the first figures a page showing an already reset window gets to replace it. */
         const val LAPSED_WAIT = 10_000L
-        /** How long the page is left hidden before it is shown again. */
-        const val WAKE_GAP = 300L
         private const val RESET_LINES = 12
 
         /** [time] is the page's own clock (performance.now) at the capture, for lining up with its requests. */
         data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "", val time: Long = 0)
-
-        /**
-         * A page on screen hears the user come back to it: it is hidden, then shown
-         * again. Pages that keep what they cached until then refresh it at that moment,
-         * the way SWR and TanStack Query revalidate on visibility. A background page
-         * never hears it, so it is told once, through the WebView's own pause and resume
-         * rather than a script. Reported: Grok's figure never changed in the background
-         * while the site moved on.
-         *
-         * Focus is not given as well: focusing a WebView outside any window reached the
-         * app's shared keyboard state, and on CI the keyboard then failed to show for a
-         * text field in the app and was taken as shown over a widget host.
-         */
-        internal suspend fun wake(web: WebView) {
-            web.onPause()
-            delay(WAKE_GAP)
-            web.onResume()
-        }
 
         /** Runs a read-only [script] in the page; null when it does not answer in time. */
         internal suspend fun probe(web: WebView, script: String): String? = withTimeoutOrNull(2_000L) {
@@ -283,14 +266,6 @@ class WebUsageReader(
                 });
                 return hot.concat(rest).slice(0,10).join(' ')||'no data requests';
               }catch(err){return 'unavailable';}
-            })()
-        """.trimIndent()
-
-        /** Names of what the page keeps in local storage, never the values: a page that renders from its own store shows it here. */
-        internal val STORAGE_JS = """
-            (function(){
-              try{return 'keys: '+(Object.keys(localStorage).slice(0,15).map(function(k){return k.slice(0,40);}).join(' ')||'none');}
-              catch(err){return 'unavailable';}
             })()
         """.trimIndent()
 
