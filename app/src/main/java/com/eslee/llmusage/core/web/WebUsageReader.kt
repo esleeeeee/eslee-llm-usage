@@ -238,20 +238,21 @@ class WebUsageReader(
         data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "", val time: Long = 0)
 
         /**
-         * A page on screen hears the user come back to it: it is hidden, shown again,
-         * and given focus. Pages that keep what they cached until then refresh it at that
-         * moment, the way SWR revalidates on focus. A background page never hears it, so
-         * it is told once, through the WebView's own lifecycle calls rather than a script.
-         * Reported: Grok's figure never changed in the background while the site moved on.
+         * A page on screen hears the user come back to it: it is hidden, then shown
+         * again. Pages that keep what they cached until then refresh it at that moment,
+         * the way SWR and TanStack Query revalidate on visibility. A background page
+         * never hears it, so it is told once, through the WebView's own pause and resume
+         * rather than a script. Reported: Grok's figure never changed in the background
+         * while the site moved on.
+         *
+         * Focus is not given as well: focusing a WebView outside any window reached the
+         * app's shared keyboard state, and on CI the keyboard then failed to show for a
+         * text field in the app and was taken as shown over a widget host.
          */
         internal suspend fun wake(web: WebView) {
             web.onPause()
             delay(WAKE_GAP)
             web.onResume()
-            // Focus for the page itself, not for the first link or field in it.
-            web.settings.setNeedInitialFocus(false)
-            web.requestFocus()
-            web.onWindowFocusChanged(true)
         }
 
         /** Runs a read-only [script] in the page; null when it does not answer in time. */

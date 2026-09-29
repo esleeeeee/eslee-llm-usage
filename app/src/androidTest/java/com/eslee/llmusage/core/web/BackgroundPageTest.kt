@@ -65,7 +65,7 @@ class BackgroundPageTest {
         assertTrue("an element scrolled into view was never reported visible: $seen", seen.getBoolean("bottom"))
     }
 
-    /** What the page hears when the reader tells it the user came back: hidden, then shown again, then focus. */
+    /** What the page hears when the reader tells it the user came back: hidden, then shown again. */
     @Test fun wakingThePageTellsItTheUserCameBack() = runBlocking {
         val seen = onDetachedPage(EVENT_PAGE) { web ->
             delay(1_500)
@@ -97,7 +97,6 @@ class BackgroundPageTest {
         val thisWeek = moment(3)
         val refreshed = readGrok("""
             function back(){ if (document.visibilityState === 'visible') fresh('${korean(thisWeek)}'); }
-            window.addEventListener('focus', back);
             document.addEventListener('visibilitychange', back);
         """, cached = moment(-3))
         assertEquals(52.0, refreshed.usedPercent!!, 0.0)

@@ -1073,7 +1073,9 @@ drawn:     {"visibility":"visible","frames":226,"late":true,"top":true,"bottom":
 
 그리지 않아도 4초에 46프레임이 돌고, 늦게 요청한 rAF와 화면 진입 감지 모두 동작했다. **원인이 아니므로 프레임 공급은 넣지 않았다.** 이 사실은 `BackgroundPageTest.aPageNobodySeesStillGetsFrames`로 남겨, 엔진이 바뀌면 드러나게 했다.
 
-**넣은 것 1 — 백그라운드 페이지에 "사용자가 돌아옴"을 한 번 알린다.** 화면에 있는 페이지는 사용자가 탭을 떠났다 돌아오면 숨김→보임 전환(`visibilitychange`)과 포커스를 받는다. 캐시를 그때 다시 확인하는 페이지(SWR `revalidateOnFocus`, TanStack Query의 focus 재조회)는 이 신호가 없으면 옛 값에 머문다. 백그라운드 WebView는 이 신호를 절대 받지 못한다. 첫 수치가 보이면 `onPause()` → 300ms → `onResume()` → `requestFocus()` → `onWindowFocusChanged(true)`로 한 번 알린다. WebView 자체의 생명주기 호출이며 페이지 스크립트는 건드리지 않는다(`setNeedInitialFocus(false)`로 페이지 안 첫 입력칸에는 포커스를 주지 않는다). 계기 테스트: 이벤트를 세는 페이지가 숨김·보임을 모두 들어야 하고, 돌아올 때만 새 값을 그리는 페이지에서 새 값(52%)이 저장돼야 통과한다.
+**넣은 것 1 — 백그라운드 페이지에 "사용자가 돌아옴"을 한 번 알린다.** 화면에 있는 페이지는 사용자가 탭을 떠났다 돌아오면 숨김→보임 전환(`visibilitychange`)을 받는다. 캐시를 그때 다시 확인하는 페이지(SWR `revalidateOnFocus`, TanStack Query의 focus 재조회 — 둘 다 `visibilitychange`를 듣는다)는 이 신호가 없으면 옛 값에 머문다. 백그라운드 WebView는 이 신호를 절대 받지 못한다. 첫 수치가 보이면 `onPause()` → 300ms → `onResume()`으로 한 번 알린다. WebView 자체의 생명주기 호출이며 페이지 스크립트는 건드리지 않는다. 계기 테스트: 이벤트를 세는 페이지가 숨김·보임을 모두 들어야 하고, 보임 전환 때만 새 값을 그리는 페이지에서 새 값(52%)이 저장돼야 통과한다.
+
+포커스(`requestFocus()` + `onWindowFocusChanged(true)`)도 함께 주던 판은 CI 2차에서 뺐다. 창 밖의 WebView에 포커스를 주면 앱이 공유하는 키보드(IME) 상태에 닿아, 뒤이은 테스트에서 앱 입력칸의 키보드가 뜨지 않고 위젯 호스트 위에는 키보드가 떠 있는 것으로 잡혔다.
 
 **넣은 것 2 — "못 읽었는데 정상으로 표시" 방지.** 대표 한도가 **이미 1시간 넘게 지난 초기화 시각과 함께 0%보다 큰 사용량**을 보이면 현재 값일 수 없다(초기화 전에 캐시된 값). 수집기는 그런 페이지에 첫 수치 후 10초까지 새 값을 기다리고, 끝까지 그대로면 `STALE_PAGE` 실패로 처리해 마지막 정상값을 유지한다. 웹 화면의 읽기(`recordWeb`)도 같다. 계정 상태는 "페이지가 초기화 전 값을 표시 · 마지막 값 유지", 새로고침 결과는 실패(위젯 빨강, 앱 알림). 사용량 0%이거나 초기화 시각이 없으면 판단하지 않는다(쉬는 기간과 구분할 수 없음). **같은 주기 안에서 캐시된 값은 이 규칙으로 잡히지 않는다.**
 
@@ -1113,6 +1115,8 @@ drawn:     {"visibility":"visible","frames":226,"late":true,"top":true,"bottom":
 로컬 `testDebugUnitTest` **103 tests / failures 0 / errors 0** (98 → 103: 버튼·개수 문구로 센 리셋권, 진단 기준 라벨, 양쪽 여백, 줄 간격, 지난 주기 값). `lintDebug` errors 0. `assembleDebug`, `assembleDebugAndroidTest` 통과.
 
 CI 1차(6d10d02): 계기 테스트 30개 중 29개 통과. 실패 1건은 새로고침 버튼 터치 영역을 40dp로 줄여 기존 `WidgetRefreshIntegrationTest`의 48dp 요구를 어긴 것 — 48dp로 되돌렸다. 같은 실행의 프레임 관찰이 위 A의 가설을 기각했다. 날짜가 고정된 Grok 계기 fixture(9월 25일)는 그날이 지나 지난 주기 값이 되므로 오늘 기준 날짜로 바꿨다.
+
+CI 2차(363e95a): 32개 중 30개 통과(새 `BackgroundPageTest` 6건 모두 통과). 실패 2건 `EmulatorJourneyTest.apiAccountFormCanBeSavedWithKeyboardOnSmallScreen`(키보드가 10초 안에 안 뜸)과 `WidgetRefreshIntegrationTest`(키보드가 보인다고 판단해 탭 대기 15초 초과)는 둘 다 키보드 상태였다. 포커스 호출이 없던 1차에서는 두 테스트 모두 그 지점을 지났으므로 포커스 호출을 원인으로 보고 뺐다.
 
 ### 미검증
 
