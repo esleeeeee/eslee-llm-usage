@@ -23,6 +23,7 @@ private val Context.settingsDataStore by preferencesDataStore("settings")
     val updatePrompts: Boolean = true,
     val updateSkipped: String = "",
     val updateCheckedAt: Long = 0,
+    val batteryHintDismissed: Boolean = false,
 )
 class SettingsStore(context: Context) {
     private val dataStore = context.settingsDataStore

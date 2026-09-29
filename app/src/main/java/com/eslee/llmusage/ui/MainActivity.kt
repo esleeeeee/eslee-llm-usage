@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -76,6 +77,8 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     val failed = stringResource(R.string.operation_failed)
     val done = stringResource(R.string.saved)
     val validationFailed = stringResource(R.string.validation_failed)
+    val refreshFailed = stringResource(R.string.refresh_failed_one)
+    val resources = LocalResources.current
     val route = stack.substringAfterLast('>')
     fun push(next: String) { stack = "$stack>$next" }
     fun pop() { if (stack.contains('>')) stack = stack.substringBeforeLast('>') }
@@ -104,7 +107,10 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     fun refresh(account: Account) {
         action {
             graph.repository.refresh(account.id)
-            if (account.authMode == AuthMode.WEB_PROFILE && graph.repository.account(account.id)?.lastErrorCode == "AUTH_REQUIRED") openWeb(account)
+            val error = graph.repository.account(account.id)?.lastErrorCode
+            if (account.authMode == AuthMode.WEB_PROFILE && error == "AUTH_REQUIRED") openWeb(account)
+            // Say so when the numbers on screen are still the old ones.
+            else if (error != null) snackbar.showSnackbar(refreshFailed)
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -121,6 +127,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         }
     }
     BackHandler(stack.contains('>')) { pop() }
+    val backgroundAllowed = rememberBackgroundAllowed()
     // A newer build on GitHub Releases is offered once every few hours, unless this version was skipped.
     var update by remember { mutableStateOf<UpdateChecker.Available?>(null) }
     LaunchedEffect(settings.updatePrompts) {
@@ -182,6 +189,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
             "diagnostics" -> DiagnosticsScreen(graph, onBack = ::pop)
             "widgets" -> WidgetsScreen(accounts, graph, onBack = ::pop)
             "settings" -> SettingsScreen(settings, accounts, onChange = { settle { graph.settings.update(it) } }, onBack = ::pop,
+                backgroundAllowed = backgroundAllowed, onAllowBackground = { BatteryExemption.request(context) },
                 onDiagnostics = { push("diagnostics") }, onProviders = { push("providers") }, onWidgets = { push("widgets") },
                 onClear = { kind -> action {
                     when (kind) { 0 -> graph.repository.clearCredentials(apiOnly = true); 1 -> graph.repository.clearCredentials(webOnly = true); else -> graph.repository.clearData() }
@@ -191,15 +199,21 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                 val selected = accounts.find { it.account.id == selectedId }
                 if (selected != null) DetailScreen(selected, graph, settings, busy, onBack = ::pop,
                     onRefresh = { refresh(selected.account) }, onOpenWeb = { openWeb(selected.account) },
-                    onChange = { updated -> action { graph.repository.updateAccount(updated) } },
+                    onChange = { updated -> settle { graph.repository.updateAccount(updated) } },
                     onDelete = { action { graph.repository.deleteAccount(selected.account.id); stack = "home" } },
                     onLogout = { action { graph.repository.logout(selected.account.id) } },
                     onCredential = { secret -> action { graph.repository.setCredential(selected.account.id, secret); graph.repository.refresh(selected.account.id) } })
                 else ScreenScaffold(stringResource(R.string.usage), onBack = ::pop) { padding -> Text(stringResource(R.string.no_accounts), Modifier.padding(padding).padding(24.dp)) }
             }
             else -> HomeScreen(accounts, graph, settings, busy,
+                showBatteryHint = !backgroundAllowed && settings.intervalMinutes != 0L && !settings.batteryHintDismissed && accounts.isNotEmpty(),
+                onAllowBackground = { BatteryExemption.request(context) },
+                onDismissBatteryHint = { settle { graph.settings.edit { it.copy(batteryHintDismissed = true) } } },
                 onOpen = { selectedId = it; push("detail") }, onAdd = { push("add") },
-                onRefreshAll = { action { graph.repository.refreshAll() } },
+                onRefreshAll = { action {
+                    val failures = graph.repository.refreshAll()
+                    if (failures > 0) snackbar.showSnackbar(resources.getString(R.string.refresh_failed_count, failures))
+                } },
                 onSettings = { push("settings") }, onProviders = { push("providers") })
         }
         // Validation and save errors must also be visible on add/detail/settings.
@@ -212,6 +226,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
 @Composable
 private fun HomeScreen(
     accounts: List<AccountOverview>, graph: AppGraph, settings: AppSettings, busy: Boolean,
+    showBatteryHint: Boolean, onAllowBackground: () -> Unit, onDismissBatteryHint: () -> Unit,
     onOpen: (String) -> Unit, onAdd: () -> Unit, onRefreshAll: () -> Unit, onSettings: () -> Unit, onProviders: () -> Unit,
 ) {
     ScreenScaffold(
@@ -231,6 +246,7 @@ private fun HomeScreen(
                         TextButton(onClick = onProviders) { Text(stringResource(R.string.provider_status)) }
                     }
                 } else {
+                    if (showBatteryHint) item { BackgroundAllowanceCard(onAllow = onAllowBackground, onDismiss = onDismissBatteryHint) }
                     items(accounts, key = { it.account.id }) { overview ->
                         AccountCard(overview, graph.registry.definition(overview.account.providerId)?.displayName ?: overview.account.providerId,
                             settings.staleHours, onOpen = { onOpen(overview.account.id) })

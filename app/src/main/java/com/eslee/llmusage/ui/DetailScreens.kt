@@ -268,7 +268,7 @@ internal fun WidgetsScreen(accounts: List<AccountOverview>, graph: AppGraph, onB
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     ProviderMark(row.providerId, size = 24.dp)
                                     Text(row.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                    Text(stringResource(R.string.reset_credits_count, row.count), style = MaterialTheme.typography.titleSmall)
+                                    Text(if (row.known) stringResource(R.string.reset_credits_count, row.count) else "—", style = MaterialTheme.typography.titleSmall)
                                     Text(row.caption, style = MaterialTheme.typography.labelSmall, color = if (row.warning) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                 }
                             }

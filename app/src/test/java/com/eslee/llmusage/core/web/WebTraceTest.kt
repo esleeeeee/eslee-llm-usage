@@ -45,6 +45,7 @@ class WebTraceTest {
 
     @Test fun everyEventIsTimestampedSoAStallIsVisible() {
         WebTrace.record("progress", "50%")
-        assertTrue(WebTrace.snapshot().single().matches(Regex("""\d{2}:\d{2}:\d{2}\.\d{3} progress · 50%""")))
+        // The date is kept too: the trace now survives restarts and spans days.
+        assertTrue(WebTrace.snapshot().single().matches(Regex("""\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} progress · 50%""")))
     }
 }

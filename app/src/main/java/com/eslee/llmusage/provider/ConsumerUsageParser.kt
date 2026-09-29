@@ -13,12 +13,17 @@ import java.util.Locale
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
     const val VERSION = "1.2.2"
-    private data class Label(val id: String, val title: String, val pattern: Regex)
-    private fun label(id: String, title: String, pattern: String) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE))
+    /** A quota label opens a limit of its own; any other label only ends the section before it. */
+    private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
+    private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
     private val labels = mapOf(
+        // Grok has one weekly limit and lists each product's share of it under the
+        // limit. Those shares are not limits, so they close the weekly section
+        // without becoming rings: a share with a number used to stand in for the
+        // weekly figure whenever the page drew that figure out of innerText's reach.
         "grok" to listOf(label("weekly", "Weekly usage", "weekly(?:\\s+supergrok)?\\s+(?:usage|limit)|주간 사용량|매주.*한도|주간.*한도"),
-            label("chat", "Chat", "^chat$"), label("imagine", "Imagine", "^imagine$"),
-            label("voice", "Voice", "^voice$"), label("build", "Build", "^build$"), label("api", "API", "^api$")),
+            label("chat", "Chat", "^chat$", quota = false), label("imagine", "Imagine", "^imagine$", quota = false),
+            label("voice", "Voice", "^voice$", quota = false), label("build", "Build", "^build$", quota = false), label("api", "API", "^api$", quota = false)),
         "claude" to listOf(label("session", "Current session", "current session|5[- ]hour(?: session)?|현재 세션|5시간"),
             label("weekly", "Weekly usage", "weekly(?: usage| limits?)?|all models|주간(?: 사용량| 한도)?|모든 모델"),
             label("sonnet", "Sonnet", "sonnet only|sonnet만")),
@@ -57,6 +62,7 @@ object ConsumerUsageParser {
         val lines = normalized.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
         val matches = lines.mapIndexedNotNull { index, line -> dictionary.firstOrNull { it.pattern.containsMatchIn(line) }?.let { index to it } }
         val buckets = matches.mapIndexedNotNull { index, (start, label) ->
+            if (!label.quota) return@mapIndexedNotNull null
             val nextLabel = matches.getOrNull(index + 1)?.first ?: lines.size
             val stop = Regex("Extra Usage Credits|upgrade|special offer|save \\d|업그레이드|할인", RegexOption.IGNORE_CASE)
             val end = minOf(nextLabel, start + 6)
@@ -81,7 +87,7 @@ object ConsumerUsageParser {
             candidates.maxByOrNull(::bucketEvidence) ?: candidates.first()
         }
         val credits = parseResetCredits(lines, fetchedAt, localZone)
-        if (buckets.isEmpty() && credits.isEmpty()) {
+        if (buckets.isEmpty() && credits.isNullOrEmpty()) {
             val login = Regex("sign in to|log in to|continue with (google|apple)|이메일로 로그인|로그인하세요", RegexOption.IGNORE_CASE).containsMatchIn(visibleText)
             return ProviderResult.Failure(if (login) ProviderErrorCode.AUTH_REQUIRED else ProviderErrorCode.PARSE_FAILED,
                 if (login) "서비스에 직접 로그인한 뒤 사용량 화면을 여세요." else "알려진 사용량 숫자나 명시적인 리셋 시각을 찾지 못했습니다. 이전 결과를 유지합니다.")
@@ -94,15 +100,60 @@ object ConsumerUsageParser {
             creditLine?.groupValues?.get(1)?.replace(",", ".")?.toDoubleOrNull()?.let(::CreditBalance)
         } else null
         val plan = Regex("\\b(SuperGrok(?:\\s+(?:Plus|Heavy|Pro))?|Claude (?:Pro|Max)|ChatGPT (?:Plus|Pro|Business|Go))\\b", RegexOption.IGNORE_CASE).find(visibleText)?.value
-        val primary = when {
-            providerId == "claude" -> "session"
-            providerId == "chatgpt" && buckets.any { it.id == "session" } -> "session"
-            else -> "weekly"
-        }
+        // The main quota is the first of the provider's windows that carries a figure,
+        // so a page that has drawn only its weekly limit still has something to show.
+        val order = if (providerId == "grok") listOf("weekly") else listOf("session", "weekly")
+        val primary = order.firstOrNull { id -> buckets.any { it.id == id && hasNumbers(it) } }
+            ?: order.firstOrNull { id -> buckets.any { it.id == id } } ?: order.first()
         return ProviderResult.Success(UsageSnapshot(accountId, providerId, buckets, fetchedAt, SnapshotSource.VISIBLE_PAGE,
-            "공식 화면의 표시 텍스트 · parser $VERSION · 표시되지 않은 값은 알 수 없음", planName = plan, extraCredits = credit, resetCredits = credits,
-            syncMode = SyncMode.FOREGROUND_ONLY, status = if (buckets.any { it.usedPercent == null && it.used == null && it.remaining == null }) SnapshotStatus.PARTIAL else SnapshotStatus.SUCCESS,
+            "공식 화면의 표시 텍스트 · parser $VERSION · 표시되지 않은 값은 알 수 없음", planName = plan, extraCredits = credit, resetCredits = credits.orEmpty(), resetCreditsKnown = credits != null,
+            syncMode = SyncMode.FOREGROUND_ONLY,
+            // Complete means the main quota has its figure; a side window without one does not hold a read back.
+            status = if (buckets.any { it.id == primary && hasNumbers(it) }) SnapshotStatus.SUCCESS else SnapshotStatus.PARTIAL,
             primaryBucketId = primary, parserVersion = VERSION))
+    }
+
+    fun hasNumbers(bucket: UsageBucket): Boolean =
+        bucket.usedPercent != null || bucket.remainingPercent != null || bucket.used != null || bucket.remaining != null
+
+    /** True when parsing found an actual figure, not just a label or a reset time. */
+    fun carriesNumbers(result: ProviderResult): Boolean = result is ProviderResult.Success && result.snapshot.buckets.any(::hasNumbers)
+
+    /** True when the account's main quota -- the one its ring shows -- has a figure. */
+    fun primaryHasNumbers(result: ProviderResult): Boolean = result is ProviderResult.Success &&
+        result.snapshot.buckets.any { it.id == result.snapshot.primaryBucketId && hasNumbers(it) }
+
+    /**
+     * A page is captured twice: as painted text and as a walk of its nodes, which
+     * reaches figures drawn outside innerText. The painted text wins whenever it
+     * holds the main quota's figure. The walk is taken when only it does, instead
+     * of only when the painted text had no number anywhere: a breakdown line with
+     * a number of its own used to keep the walk from ever being consulted.
+     */
+    fun parseBest(
+        providerId: String,
+        accountId: String,
+        visibleText: String,
+        richText: String?,
+        fetchedAt: Long = System.currentTimeMillis(),
+        localZone: ZoneId = ZoneId.systemDefault(),
+    ): ProviderResult {
+        val painted = parse(providerId, accountId, visibleText, fetchedAt, localZone)
+        if (primaryHasNumbers(painted) || richText.isNullOrBlank() || richText == visibleText) return painted
+        val walked = parse(providerId, accountId, richText, fetchedAt, localZone)
+        val chosen = when {
+            primaryHasNumbers(walked) -> walked
+            carriesNumbers(painted) -> painted
+            carriesNumbers(walked) -> walked
+            else -> painted
+        }
+        // Reset credits are plain text; keep them from whichever capture found them.
+        val other = if (chosen === walked) painted else walked
+        if (chosen is ProviderResult.Success && other is ProviderResult.Success &&
+            chosen.snapshot.resetCredits.isEmpty() && other.snapshot.resetCredits.isNotEmpty()) {
+            return ProviderResult.Success(chosen.snapshot.copy(resetCredits = other.snapshot.resetCredits))
+        }
+        return chosen
     }
 
     private enum class PercentMeaning { USED, REMAINING, UNKNOWN }
@@ -182,17 +233,25 @@ object ConsumerUsageParser {
      * the older dashboard only counts them ("3 resets available"), and Grok
      * shows one that can be used ("사용 한도 재설정 / 재설정 가능 / 1일 후 만료").
      */
-    internal fun parseResetCredits(lines: List<String>, now: Long, localZone: ZoneId): List<ResetCredit> {
+    internal fun parseResetCredits(lines: List<String>, now: Long, localZone: ZoneId): List<ResetCredit>? {
         val explicit = Regex("(\\d+)\\s+resets?\\s+available|\\bavailable\\s+(\\d+)\\b|재설정\\s*(\\d+)\\s*개", RegexOption.IGNORE_CASE)
             .find(lines.joinToString("\n"))?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toIntOrNull() }
         val header = lines.indexOfFirst { resetsHeader.containsMatchIn(it) }
-        if (header < 0 && explicit == null) return emptyList()
+        // No section and no count: the page said nothing about reset credits, which is not the same as none.
+        if (header < 0 && explicit == null) return null
         val section = if (header < 0) emptyList() else lines.subList(header + 1, lines.size).takeWhile { !resetsStop.containsMatchIn(it) }
         val credits = mutableListOf<ResetCredit>()
         var label: String? = null
-        for (line in section) {
+        section.forEachIndexed { index, line ->
             when {
-                expiryMarker.containsMatchIn(line) -> { credits += ResetCredit(label, parseExpiry(line, now, localZone)); label = null }
+                expiryMarker.containsMatchIn(line) -> {
+                    // The node walk can put the moment and the word "만료" on neighbouring lines.
+                    val expiry = parseExpiry(line, now, localZone)
+                        ?: section.getOrNull(index - 1)?.takeIf { !creditItem.containsMatchIn(it) }?.let { parseExpiry(it, now, localZone) }
+                        ?: section.getOrNull(index + 1)?.takeIf { !expiryMarker.containsMatchIn(it) }?.let { parseExpiry(it, now, localZone) }
+                    credits += ResetCredit(label, expiry)
+                    label = null
+                }
                 creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> label = line
             }
         }

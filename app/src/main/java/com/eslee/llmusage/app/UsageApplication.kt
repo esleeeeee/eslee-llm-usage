@@ -23,6 +23,7 @@ class UsageApplication : Application() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     override fun onCreate() {
         super.onCreate()
+        com.eslee.llmusage.core.web.WebTrace.attach(filesDir)
         ProfileSessions.initialize(this)
         scope.launch { graph.settings.flow.collect { SyncScheduler.schedule(this@UsageApplication, it) } }
     }

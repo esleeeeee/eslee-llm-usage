@@ -35,4 +35,12 @@ class RefreshStateTest {
         assertEquals(RefreshState.IDLE, refreshState(preferencesOf(refreshedAt to now - REFRESH_DONE_MILLIS * 4), now))
         assertEquals(RefreshState.IDLE, refreshState(preferencesOf(refreshedAt to now + 60_000), now))
     }
+
+    /** Reported: the button turned green while the numbers stayed old. Green now means every account was read. */
+    @Test fun aPassWithAFailedAccountIsRedNotGreen() {
+        val refreshOk = booleanPreferencesKey("refresh_ok")
+        assertEquals(RefreshState.FAILED, refreshState(preferencesOf(refreshedAt to now, refreshOk to false), now))
+        assertEquals(RefreshState.DONE, refreshState(preferencesOf(refreshedAt to now, refreshOk to true), now))
+        assertEquals(RefreshState.IDLE, refreshState(preferencesOf(refreshOk to false), now))
+    }
 }

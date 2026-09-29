@@ -35,6 +35,16 @@
     <string name="reset_credits">Reset credits</string>
     <string name="reset_credits_count">%1$d left</string>
     <string name="reset_credits_none">No reset credits</string>
+    <string name="reset_credits_unknown">Not on the page yet</string>
+    <string name="refresh_failed_count">%1$d account(s) could not be refreshed. The last reading is kept.</string>
+    <string name="refresh_failed_one">Could not refresh. The last reading is kept.</string>
+    <string name="sync_channel">Usage refresh</string>
+    <string name="sync_notification">Refreshing usage…</string>
+    <string name="battery_title">Keep automatic refresh running</string>
+    <string name="battery_body">Battery optimization can stop background refresh for hours. Allow this app to run in the background.</string>
+    <string name="battery_allowed">Background refresh allowed</string>
+    <string name="battery_allow">Allow</string>
+    <string name="battery_dismiss">Not now</string>
     <string name="reset_credits_summary">Reset credits %1$d · expires in %2$s</string>
     <string name="reset_credits_summary_no_expiry">Reset credits %1$d</string>
     <string name="reset_credit_expiry">Expires in %1$s · %2$s</string>

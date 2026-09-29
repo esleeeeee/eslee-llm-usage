@@ -41,7 +41,8 @@ class ConsumerUsageParserTest {
         assertEquals(42.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
         assertEquals(Instant.parse("2026-09-12T09:00:00+09:00").toEpochMilli(), snapshot.buckets.first().resetAt)
         assertEquals(15.0, snapshot.extraCredits!!.amount, 0.0)
-        assertEquals(10.0, snapshot.buckets.first { it.id == "chat" }.usedPercent!!, 0.0)
+        // The product lines are shares of the one weekly limit, not limits of their own.
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
     }
     @Test fun claudeSessionAndWeeklyRemainIndependent() {
         val buckets = (parsed("claude", "usage_normal") as ProviderResult.Success).snapshot.buckets
@@ -293,5 +294,61 @@ class ConsumerUsageParserTest {
     @Test fun aPageWithoutResetCreditsHasNone() {
         val snapshot = (parsed("claude", "usage_normal") as ProviderResult.Success).snapshot
         assertTrue(snapshot.resetCredits.isEmpty())
+    }
+
+    /**
+     * Reported: Grok showed "Imagine" as a limit of its own beside the weekly one,
+     * and its ring read 92 while the page said 52% used. Grok has one weekly limit;
+     * the product lines are shares of it and must not become rings.
+     */
+    @Test fun grokProductSharesAreNotLimitsOfTheirOwn() {
+        val page = "매주 SuperGrok 한도\n52%\n중고\n2026년 9월 25일 오후 4:39 초기화\nChat\n44%\n중고\nImagine\n8%\n중고"
+        val snapshot = (ConsumerUsageParser.parse("grok", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals(52.0, snapshot.buckets.single().usedPercent!!, 0.0)
+        assertEquals(48.0, snapshot.buckets.single().remainingPercent!!, 0.0)
+    }
+
+    /** The painted text had a product share's figure but not the weekly one; that used to hide the node walk. */
+    @Test fun theNodeWalkIsUsedWhenOnlyItHoldsTheMainFigure() {
+        val painted = "매주 SuperGrok 한도\n중고\n2026년 9월 25일 오후 4:39 초기화\nImagine\n8%\n중고"
+        val walked = "매주 SuperGrok 한도\n52%\n중고\n2026년 9월 25일 오후 4:39 초기화\nImagine\n8%\n중고"
+        val result = ConsumerUsageParser.parseBest("grok", "a", painted, walked, now, localZone)
+        assertTrue(ConsumerUsageParser.primaryHasNumbers(result))
+        assertEquals(52.0, (result as ProviderResult.Success).snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
+    }
+
+    @Test fun completenessDependsOnTheMainQuotaOnly() {
+        val sideWithoutFigure = "5시간 사용 한도\n45%\n남음\n주간 사용 한도\n2026. 9. 15. 오후 2:18 초기화"
+        val complete = (ConsumerUsageParser.parse("chatgpt", "a", sideWithoutFigure, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals("session", complete.primaryBucketId)
+        assertEquals(SnapshotStatus.SUCCESS, complete.status)
+        val mainWithoutFigure = "매주 SuperGrok 한도\n중고\n2026년 9월 25일 오후 4:39 초기화"
+        val partial = ConsumerUsageParser.parse("grok", "a", mainWithoutFigure, now, localZone)
+        assertFalse(ConsumerUsageParser.primaryHasNumbers(partial))
+        assertEquals(SnapshotStatus.PARTIAL, (partial as ProviderResult.Success).snapshot.status)
+    }
+
+    @Test fun whenOnlyTheWeeklyLimitIsDrawnItBecomesTheMainQuota() {
+        val page = "5시간 사용 한도\n오후 1:10 초기화\n주간 사용 한도\n66%\n남음"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals("weekly", snapshot.primaryBucketId)
+        assertEquals(SnapshotStatus.SUCCESS, snapshot.status)
+    }
+
+    /** A page that never showed the reset section says nothing about the count: unknown, not zero. */
+    @Test fun resetCreditsAreUnknownUntilTheSectionIsSeen() {
+        val without = (ConsumerUsageParser.parse("chatgpt", "a", "5시간 사용 한도\n45%\n남음", now, localZone) as ProviderResult.Success).snapshot
+        assertFalse(without.resetCreditsKnown)
+        val with = (parsed("chatgpt", "usage_codex_korean") as ProviderResult.Success).snapshot
+        assertTrue(with.resetCreditsKnown)
+    }
+
+    /** The node walk can put the moment and the word "만료" on separate lines. */
+    @Test fun aResetCreditExpirySplitAcrossLinesIsStillRead() {
+        val page = "5시간 사용 한도\n45%\n남음\n사용량 한도 재설정\n전체 재설정(주간 + 5시간)\n9월 21일 오전 7:41\n에 만료\n재설정 사용"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(1, snapshot.resetCredits.size)
+        assertEquals(java.time.ZonedDateTime.of(2026, 9, 21, 7, 41, 0, 0, localZone).toInstant().toEpochMilli(), snapshot.resetCredits.single().expiresAt)
     }
 }

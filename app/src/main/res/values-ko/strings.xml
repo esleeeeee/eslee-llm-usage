@@ -35,6 +35,16 @@
     <string name="reset_credits">리셋권</string>
     <string name="reset_credits_count">%1$d개</string>
     <string name="reset_credits_none">리셋권 없음</string>
+    <string name="reset_credits_unknown">아직 확인 전</string>
+    <string name="refresh_failed_count">계정 %1$d개를 갱신하지 못했습니다. 마지막 값은 유지됩니다.</string>
+    <string name="refresh_failed_one">갱신하지 못했습니다. 마지막 값은 유지됩니다.</string>
+    <string name="sync_channel">사용량 갱신</string>
+    <string name="sync_notification">사용량 갱신 중…</string>
+    <string name="battery_title">자동 갱신이 멈추지 않게 하기</string>
+    <string name="battery_body">배터리 최적화가 백그라운드 갱신을 몇 시간씩 멈출 수 있습니다. 이 앱의 백그라운드 실행을 허용하세요.</string>
+    <string name="battery_allowed">백그라운드 갱신 허용됨</string>
+    <string name="battery_allow">허용</string>
+    <string name="battery_dismiss">나중에</string>
     <string name="reset_credits_summary">리셋권 %1$d개 · %2$s 후 만료</string>
     <string name="reset_credits_summary_no_expiry">리셋권 %1$d개</string>
     <string name="reset_credit_expiry">%1$s 후 만료 · %2$s</string>

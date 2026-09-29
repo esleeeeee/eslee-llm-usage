@@ -33,6 +33,11 @@
     <string name="widget_refresh">Refresh all accounts</string>
     <string name="widget_refreshing">Refreshing…</string>
     <string name="widget_refreshed">Refreshed</string>
+    <string name="widget_refresh_failed">Some accounts could not be refreshed</string>
+    <string name="widget_left_days_hours">%1$dd %2$dh left</string>
+    <string name="widget_left_hours_minutes">%1$dh %2$dm left</string>
+    <string name="widget_left_minutes">%1$dm left</string>
+    <string name="widget_reset_on_pattern">MMM d H:mm</string>
     <string name="web_close">Close</string>
     <string name="web_login_check">Check sign-in</string>
     <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>

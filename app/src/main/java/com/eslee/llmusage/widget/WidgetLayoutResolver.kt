@@ -3,8 +3,20 @@ package com.eslee.llmusage.widget
 import kotlin.math.ceil
 import kotlin.math.min
 
-/** How many rings fit and how large they are, for one widget size in dp. */
-data class WidgetGrid(val columns: Int, val rows: Int, val slotWidth: Float, val gauge: Float, val showTitle: Boolean, val showCaption: Boolean) {
+/**
+ * How many rings fit and how large they are, for one widget size in dp.
+ * [showDetail] adds a second line under the name: the countdown spelled out and
+ * the moment of the reset.
+ */
+data class WidgetGrid(
+    val columns: Int,
+    val rows: Int,
+    val slotWidth: Float,
+    val gauge: Float,
+    val showTitle: Boolean,
+    val showCaption: Boolean,
+    val showDetail: Boolean = false,
+) {
     val capacity: Int get() = columns * rows
 }
 
@@ -19,6 +31,8 @@ object WidgetLayoutResolver {
     const val CAPTION_GAP = 1f
     const val MIN_GAUGE = 36f
     const val MAX_GAUGE = 76f
+    /** The detail line is only worth having while the ring above it stays this large. */
+    const val DETAIL_MIN_GAUGE = 44f
 
     /** How many cells wide the widget is, judged from its width alone: a 4×n widget always has four rings across. */
     fun cells(width: Float): Int = (width / CELL_WIDTH).toInt().coerceAtLeast(1)
@@ -28,7 +42,8 @@ object WidgetLayoutResolver {
      * a 4×2 widget keeps four rings in a row and only opens a second row when a
      * fifth account needs it; a 2×3 widget stacks two rings three deep. Rows
      * that do not fit the height are dropped. The countdown line stays under
-     * the name whenever the ring above it can keep its minimum size.
+     * the name whenever the ring above it can keep its minimum size, and a
+     * second line follows it when the row has room to spare.
      */
     fun resolve(width: Float, height: Float, slots: Int, columns: Int = cells(width)): WidgetGrid {
         val innerWidth = (width - 2 * PADDING).coerceAtLeast(MIN_GAUGE + 8f)
@@ -40,14 +55,17 @@ object WidgetLayoutResolver {
         val rows = min(needed, fit)
         val slotWidth = innerWidth / cols
         val rowHeight = innerHeight / rows
-        val showCaption = ring(slotWidth, rowHeight, title = true, caption = true) >= MIN_GAUGE
-        val showTitle = showCaption || ring(slotWidth, rowHeight, title = true, caption = false) >= MIN_GAUGE
-        val gauge = ring(slotWidth, rowHeight, showTitle, showCaption).coerceIn(MIN_GAUGE, MAX_GAUGE)
-        return WidgetGrid(cols, rows, slotWidth, gauge, showTitle, showCaption)
+        val showCaption = ring(slotWidth, rowHeight, title = true, captionLines = 1) >= MIN_GAUGE
+        val showTitle = showCaption || ring(slotWidth, rowHeight, title = true, captionLines = 0) >= MIN_GAUGE
+        // A second line costs ring size only where the height is short; a tall row pays nothing for it.
+        val showDetail = showCaption && ring(slotWidth, rowHeight, title = true, captionLines = 2) >= min(DETAIL_MIN_GAUGE, slotWidth - 8f)
+        val lines = when { showDetail -> 2; showCaption -> 1; else -> 0 }
+        val gauge = ring(slotWidth, rowHeight, showTitle, lines).coerceIn(MIN_GAUGE, MAX_GAUGE)
+        return WidgetGrid(cols, rows, slotWidth, gauge, showTitle, showCaption, showDetail)
     }
 
-    private fun ring(slotWidth: Float, rowHeight: Float, title: Boolean, caption: Boolean): Float {
-        val text = (if (title) TITLE_HEIGHT + RING_GAP else 0f) + (if (caption) CAPTION_HEIGHT + CAPTION_GAP else 0f)
+    private fun ring(slotWidth: Float, rowHeight: Float, title: Boolean, captionLines: Int): Float {
+        val text = (if (title) TITLE_HEIGHT + RING_GAP else 0f) + captionLines * (CAPTION_HEIGHT + CAPTION_GAP)
         return min(slotWidth - 8f, rowHeight - text - 2f)
     }
 }

@@ -19,6 +19,7 @@ import com.eslee.llmusage.usage.AccountOverview
 @Composable
 internal fun SettingsScreen(
     settings: AppSettings, accounts: List<AccountOverview>, onChange: (AppSettings) -> Unit, onBack: () -> Unit,
+    backgroundAllowed: Boolean, onAllowBackground: () -> Unit,
     onDiagnostics: () -> Unit, onProviders: () -> Unit, onWidgets: () -> Unit, onClear: (Int) -> Unit,
 ) {
     var clear by remember { mutableStateOf<Int?>(null) }
@@ -30,6 +31,14 @@ internal fun SettingsScreen(
                 ChoiceRow(stringResource(R.string.interval), settings.intervalMinutes, listOf(0L, 15L, 30L, 60L, 180L, 360L),
                     label = { if (it == 0L) stringResource(R.string.manual) else stringResource(R.string.minutes, it.toInt()) }) { onChange(settings.copy(intervalMinutes = it)) }
                 SwitchRow(stringResource(R.string.wifi_only), settings.wifiOnly) { onChange(settings.copy(wifiOnly = it)) }
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.battery_title)) },
+                    supportingContent = { Text(stringResource(if (backgroundAllowed) R.string.battery_allowed else R.string.battery_body)) },
+                    trailingContent = { if (!backgroundAllowed) TextButton(onClick = onAllowBackground) { Text(stringResource(R.string.battery_allow)) } },
+                    modifier = Modifier.clickable(enabled = !backgroundAllowed, onClick = onAllowBackground),
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                )
+                HorizontalDivider()
                 ChoiceRow(stringResource(R.string.stale_threshold), settings.staleHours, listOf(0, 1, 2, 6, 12, 24),
                     label = { if (it == 0) stringResource(R.string.provider_default) else stringResource(R.string.hours, it) }) { onChange(settings.copy(staleHours = it)) }
                 ChoiceRow(stringResource(R.string.retention), settings.retentionDays, listOf(7, 30, 90, 0),

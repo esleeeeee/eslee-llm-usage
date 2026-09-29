@@ -98,7 +98,7 @@ private fun ResetsContent(context: Context, config: WidgetConfig, rows: List<Res
                 Spacer(GlanceModifier.width(8.dp))
                 Text(row.title, GlanceModifier.defaultWeight(), TextStyle(color = foreground, fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
                 Text(
-                    context.getString(R.string.reset_credits_count, row.count),
+                    if (row.known) context.getString(R.string.reset_credits_count, row.count) else "—",
                     style = TextStyle(color = foreground, fontSize = 14.sp, fontWeight = FontWeight.Bold), maxLines = 1,
                 )
                 Spacer(GlanceModifier.width(10.dp))

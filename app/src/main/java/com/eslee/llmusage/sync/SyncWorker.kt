@@ -1,8 +1,14 @@
 package com.eslee.llmusage.sync
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.SystemClock
+import androidx.core.app.NotificationCompat
 import androidx.work.*
+import com.eslee.llmusage.R
 import com.eslee.llmusage.app.UsageApplication
+import com.eslee.llmusage.core.web.WebTrace
 import com.eslee.llmusage.settings.AppSettings
 import com.eslee.llmusage.widget.finishWidgetRefresh
 import kotlinx.coroutines.CancellationException
@@ -32,37 +38,82 @@ object SyncScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
         manager.enqueueUniquePeriodicWork("llm_usage_consumer_sync", ExistingPeriodicWorkPolicy.UPDATE, consumers)
     }
-    /** The widget's refresh button: every account, once, however many times it is tapped. */
+
+    /**
+     * The widget's refresh button: every account, once, however many times it is
+     * tapped. Expedited, because a tap is a request to start now: ordinary work
+     * from an app the system has put in a low standby bucket can wait for hours.
+     * Offline too, so the pass can report the failure and release its indicator.
+     */
     fun refreshAll(context: Context) {
         WorkManager.getInstance(context).enqueueUniqueWork("sync_all", ExistingWorkPolicy.KEEP,
-            // Run offline too, so a manual tap can report failure and release its indicator.
             OneTimeWorkRequestBuilder<SyncWorker>()
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build())
     }
+
     fun refresh(context: Context, id: String) {
         WorkManager.getInstance(context).enqueueUniqueWork("sync_$id", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SyncWorker>().setInputData(workDataOf("accountId" to id))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
 }
+
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val runStarted = System.currentTimeMillis()
+        val clock = SystemClock.elapsedRealtime()
         val repository = (applicationContext as UsageApplication).graph.repository
+        val id = inputData.getString("accountId")
+        val scope = inputData.getString("scope")
+        val manual = id == null && scope == null
+        var failed = 0
         return completeRefreshPass(
-            ownsIndicator = inputData.getString("accountId") == null && inputData.getString("scope") == null,
-            finish = { finishWidgetRefresh(applicationContext) },
+            ownsIndicator = manual,
+            finish = { finishWidgetRefresh(applicationContext, ok = failed == 0) },
         ) {
             try {
-                val id = inputData.getString("accountId")
-                if (id == null) repository.refreshAll(when(inputData.getString("scope")) { "web" -> true; "api" -> false; else -> null })
-                else repository.refresh(id)
-                val retry = if (id != null) repository.account(id)?.lastErrorCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT")
-                    else repository.logs().any { it.startedAt >= runStarted && it.resultCode in setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT") }
+                if (id == null) failed = repository.refreshAll(when (scope) { "web" -> true; "api" -> false; else -> null })
+                else {
+                    repository.refresh(id)
+                    if (repository.account(id)?.lastErrorCode != null) failed = 1
+                }
+                // One line per pass, kept across restarts, is how a user can tell whether the schedule runs at all.
+                WebTrace.record("pass", "${scope ?: if (manual) "manual" else "account"} failed=$failed ${SystemClock.elapsedRealtime() - clock}ms attempt=$runAttemptCount")
+                // A pass someone asked for reports once, on the button. Retrying it later,
+                // out of sight, left the button's colour saying nothing about the numbers.
+                if (manual) return@completeRefreshPass Result.success()
+                val retry = if (id != null) repository.account(id)?.lastErrorCode in RETRYABLE
+                    else repository.logs().any { it.startedAt >= runStarted && it.resultCode in RETRYABLE }
                 if (retry && runAttemptCount < 4) Result.retry() else Result.success()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { if (runAttemptCount < 4) Result.retry() else Result.failure() }
+            catch (error: Exception) {
+                failed = maxOf(failed, 1)
+                WebTrace.record("pass", "${scope ?: if (manual) "manual" else "account"} error ${error.javaClass.simpleName}")
+                if (!manual && runAttemptCount < 4) Result.retry() else Result.failure()
+            }
         }
+    }
+
+    /** Only used below Android 12, where expedited work runs as a short foreground service. */
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(CHANNEL) == null) {
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.sync_channel), NotificationManager.IMPORTANCE_MIN))
+        }
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL)
+            .setSmallIcon(R.drawable.ic_refresh)
+            .setContentTitle(applicationContext.getString(R.string.sync_notification))
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+        return ForegroundInfo(NOTIFICATION_ID, notification)
+    }
+
+    private companion object {
+        val RETRYABLE = setOf("RATE_LIMITED", "NETWORK", "NETWORK_TIMEOUT")
+        const val CHANNEL = "sync"
+        const val NOTIFICATION_ID = 0x4C4C
     }
 }
 

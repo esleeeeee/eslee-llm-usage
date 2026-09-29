@@ -33,6 +33,11 @@
     <string name="widget_refresh">모든 계정 새로고침</string>
     <string name="widget_refreshing">갱신 중…</string>
     <string name="widget_refreshed">갱신 완료</string>
+    <string name="widget_refresh_failed">일부 계정 갱신 실패</string>
+    <string name="widget_left_days_hours">%1$d일 %2$d시간 남음</string>
+    <string name="widget_left_hours_minutes">%1$d시간 %2$d분 남음</string>
+    <string name="widget_left_minutes">%1$d분 남음</string>
+    <string name="widget_reset_on_pattern">d일 H:mm</string>
     <string name="web_close">닫기</string>
     <string name="web_login_check">로그인 확인</string>
     <string name="web_login_confirmed">로그인했습니다. 사용량 페이지를 열어 값을 읽습니다.</string>

@@ -81,4 +81,25 @@ class WidgetLayoutResolverTest {
             }
         }
     }
+
+    /** Reported: a 4×2 widget should spell out the countdown and show when the reset happens. */
+    @Test fun aTallRowSpellsOutTheCountdownOnASecondLine() {
+        val tall = fourByN(200f, slots = 4)
+        assertTrue(tall.showCaption)
+        assertTrue(tall.showDetail)
+        val single = fourByN(100f, slots = 4)
+        assertTrue(single.showCaption)
+        assertFalse(single.showDetail)
+        // The second line costs the tall ring nothing: its size is set by the cell's width.
+        assertEquals(single.gauge.coerceAtLeast(tall.gauge), tall.gauge, 0.01f)
+    }
+
+    @Test fun theDetailLineNeverShrinksARingBelowItsMinimum() {
+        listOf(100f, 150f, 200f, 300f).forEach { height ->
+            (1..8).forEach { slots ->
+                val grid = fourByN(height, slots)
+                if (grid.showDetail) assertTrue("$height / $slots: ${grid.gauge}", grid.gauge >= WidgetLayoutResolver.DETAIL_MIN_GAUGE)
+            }
+        }
+    }
 }

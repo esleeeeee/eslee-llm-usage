@@ -62,6 +62,8 @@ data class UsageSnapshot(
     val accountLabel: String? = null,
     val extraCredits: CreditBalance? = null,
     val resetCredits: List<ResetCredit> = emptyList(),
+    /** Whether the page showed its reset-credit section at all; without it the count is unknown, not zero. */
+    val resetCreditsKnown: Boolean = false,
     val validUntil: Long? = null,
     val confidence: Confidence = Confidence.REPORTED,
     val syncMode: SyncMode = SyncMode.BACKGROUND,

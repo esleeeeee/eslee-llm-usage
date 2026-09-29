@@ -12,6 +12,7 @@ import com.eslee.llmusage.provider.*
 import com.eslee.llmusage.settings.SettingsStore
 import com.eslee.llmusage.widget.WidgetConfig
 import com.eslee.llmusage.widget.WidgetSelection
+import com.eslee.llmusage.widget.installedWidgetIds
 import com.eslee.llmusage.widget.updateWidgets
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.map
@@ -70,10 +71,22 @@ class UsageRepository(
         id
     }
 
-    suspend fun updateAccount(account: Account) = locks.getOrPut(account.id) { Mutex() }.withLock {
-        val existing = this.account(account.id) ?: return@withLock
-        persist(existing.copy(alias = account.alias.trim().take(80).ifEmpty { existing.alias }, enabled = account.enabled,
-            primaryBucketId = account.primaryBucketId))
+    /** Read, change and store an account in one transaction, so edits of different fields never undo each other. */
+    private suspend fun modifyAccount(id: String, change: (Account) -> Account): Account? = database.withTransaction {
+        val current = account(id) ?: return@withTransaction null
+        change(current).also { persist(it) }
+    }
+
+    /**
+     * Not behind the account's collection lock: a rename or a new main quota used to
+     * wait for a page load that could take a minute, and looked as if it did nothing.
+     * A collection re-reads the account when it saves, so neither write undoes the other.
+     */
+    suspend fun updateAccount(account: Account) {
+        modifyAccount(account.id) { existing ->
+            existing.copy(alias = account.alias.trim().take(80).ifEmpty { existing.alias }, enabled = account.enabled,
+                primaryBucketId = account.primaryBucketId)
+        }
         updateWidgets(context)
     }
     suspend fun setCredential(id: String, secret: String) = locks.getOrPut(id) { Mutex() }.withLock {
@@ -81,14 +94,19 @@ class UsageRepository(
         require(account.authMode == AuthMode.API_KEY && secret.isNotBlank())
         val bytes = secret.toByteArray()
         try { credentials.putSecret(id, bytes) } finally { bytes.fill(0) }
-        persist(account.copy(lastErrorCode = "NEEDS_VALIDATION"))
+        modifyAccount(id) { it.copy(lastErrorCode = "NEEDS_VALIDATION") }
     }
 
     suspend fun refresh(id: String) {
+        if (id in resettingSessions) return
         val mutex = locks.getOrPut(id) { Mutex() }
-        // Coalesce repeated taps: the active request will emit its result to all observers.
-        if (id in resettingSessions || !mutex.tryLock()) return
+        // Already being collected -- by the schedule, the open app or the widget.
+        // Returning at once used to end the caller's refresh with nothing new to
+        // show; wait for that answer instead, and try again only if it failed.
+        val waited = !mutex.tryLock()
+        if (waited) mutex.lock()
         try {
+            if (waited && account(id)?.lastErrorCode == null) return
             supervisorScope {
                 val collection = async(start = CoroutineStart.LAZY) {
                     if (id in resettingSessions) throw SessionResetCancellation()
@@ -130,55 +148,59 @@ class UsageRepository(
         saveResult(account, result, started)
     }
 
-    suspend fun refreshAll(webOnly: Boolean? = null) {
+    /** Collects every enabled account and returns how many of them failed. */
+    suspend fun refreshAll(webOnly: Boolean? = null): Int {
         val selected = dao.accounts().map { json.decodeFromString<Account>(it.payload) }
             .filter { it.enabled && registry.definition(it.providerId)?.capabilities?.supportsBackgroundSync == true }
             .filter { webOnly == null || (it.authMode == AuthMode.WEB_PROFILE) == webOnly }
         refreshAccountsIndependently(selected) { refresh(it.id) }
         cleanup()
+        return selected.count { account(it.id)?.let { current -> current.enabled && current.lastErrorCode != null } == true }
     }
 
-    /** True when parsing found an actual figure, not just a label or a reset time. */
-    private fun ProviderResult.carriesNumbers(): Boolean = this is ProviderResult.Success &&
-        snapshot.buckets.any { it.usedPercent != null || it.remainingPercent != null || it.used != null || it.remaining != null }
-
-    suspend fun recordWeb(id: String, text: String, richText: String? = null): ProviderResult {
-        val stored = locks.getOrPut(id) { Mutex() }.withLock {
-            val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE }
-                ?: return@withLock ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "계정을 사용할 수 없습니다.")
-            val started = System.currentTimeMillis()
-            val result = withContext(Dispatchers.Default) {
-                val visible = ConsumerUsageParser.parse(account.providerId, id, text, started)
-                // Only reach for the structural reading when the painted text held no
-                // figure, so providers that already parse keep the text they parse from.
-                if (visible.carriesNumbers() || richText.isNullOrBlank() || richText == text) visible
-                else ConsumerUsageParser.parse(account.providerId, id, richText, started)
-                    .takeIf { it.carriesNumbers() } ?: visible
-            }
+    /**
+     * Stores what the sign-in window read. Not behind the collection lock either:
+     * the read is already done, and waiting for a background load of the same
+     * account made the read button look stuck.
+     *
+     * A read the user did not ask for -- the window reads every page it passes --
+     * records only a success, so browsing the chat never marks the account failing.
+     */
+    suspend fun recordWeb(id: String, text: String, richText: String? = null, recordFailure: Boolean = true): ProviderResult {
+        val account = account(id)?.takeIf { it.enabled && it.authMode == AuthMode.WEB_PROFILE }
+            ?: return ProviderResult.Failure(ProviderErrorCode.CONFIGURATION, "계정을 사용할 수 없습니다.")
+        val started = System.currentTimeMillis()
+        val parsed = withContext(Dispatchers.Default) { ConsumerUsageParser.parseBest(account.providerId, id, text, richText, started) }
+        // A page that has not drawn its main quota must not replace the last good reading.
+        val result = if (parsed is ProviderResult.Success && !ConsumerUsageParser.primaryHasNumbers(parsed)) {
+            ProviderResult.Failure(ProviderErrorCode.PARSE_FAILED, "대표 항목의 수치를 찾지 못했습니다.")
+        } else parsed
+        if (result is ProviderResult.Success || recordFailure) {
             saveResult(account, result, started)
-            result
+            updateWidgets(context)
         }
-        updateWidgets(context)
-        return stored
+        return result
     }
 
     private suspend fun saveResult(account: Account, result: ProviderResult, started: Long) {
         database.withTransaction {
-            if (dao.account(account.id) == null) return@withTransaction
+            // Re-read rather than write back the copy taken when collection began: a
+            // rename or a new main quota chosen during a long load must survive it.
+            val current = this@UsageRepository.account(account.id) ?: return@withTransaction
             when (result) {
                 is ProviderResult.Success -> {
                     val snapshot = result.snapshot.copy(buckets = result.snapshot.buckets.map(UsageNormalizer::normalize))
                     dao.putSnapshot(SnapshotEntity(snapshot.snapshotId, account.id, snapshot.fetchedAt, json.encodeToString(snapshot)))
                     dao.putBuckets(snapshot.buckets.map { BucketEntity(UUID.randomUUID().toString(), snapshot.snapshotId, it.id, json.encodeToString(it)) })
                     snapshot.extraCredits?.let { dao.putCredit(CreditEntity(snapshot.snapshotId, it.amount, it.currency)) }
-                    persist(account.copy(lastAttemptAt = started, lastSuccessAt = snapshot.fetchedAt, lastErrorCode = null))
+                    persist(current.copy(lastAttemptAt = started, lastSuccessAt = snapshot.fetchedAt, lastErrorCode = null))
                     dao.putLog(SyncLogEntity(accountId = account.id, startedAt = started, resultCode = "SUCCESS",
                         parserVersion = snapshot.parserVersion))
                     retryAt.remove(account.id)
                 }
                 is ProviderResult.Failure -> {
                     val code = if (result.message == "FOREGROUND_REQUIRED") "FOREGROUND_REQUIRED" else result.code.name
-                    persist(account.copy(lastAttemptAt = started, lastErrorCode = code))
+                    persist(current.copy(lastAttemptAt = started, lastErrorCode = code))
                     dao.putLog(SyncLogEntity(accountId = account.id, startedAt = started, resultCode = code))
                     result.retryAfterMillis?.let { retryAt[account.id] = started + it.coerceIn(0, 86_400_000) }
                 }
@@ -202,9 +224,8 @@ class UsageRepository(
         credentials.deleteSecret(id)
         account.profileName?.let { withContext(Dispatchers.Main) { ProfileSessions.delete(it) } }
         WorkManager.getInstance(context).cancelUniqueWork("sync_$id")
-        persist(account.copy(lastErrorCode = "AUTH_REQUIRED", profileName = account.profileName?.let {
-            ProfileSessions.name(account.providerId, UUID.randomUUID().toString())
-        }))
+        val freshProfile = account.profileName?.let { ProfileSessions.name(account.providerId, UUID.randomUUID().toString()) }
+        modifyAccount(id) { it.copy(lastErrorCode = "AUTH_REQUIRED", profileName = freshProfile) }
         updateWidgets(context)
     }
 
@@ -262,8 +283,9 @@ class UsageRepository(
         val retention = settings.current().retentionDays
         if (retention > 0) dao.pruneSnapshots(System.currentTimeMillis() - retention * 86_400_000L)
         dao.pruneLogs()
-        val manager = android.appwidget.AppWidgetManager.getInstance(context)
-        val active = manager.getAppWidgetIds(android.content.ComponentName(context, com.eslee.llmusage.widget.UsageWidgetReceiver::class.java)).toSet()
+        // Every widget kind shares this store. Counting only the ring widget deleted the
+        // reset-credit widget's accounts after each refresh.
+        val active = installedWidgetIds(context)
         dao.widgets().filter { it.appWidgetId !in active }.forEach { dao.deleteWidget(it.appWidgetId) }
     }
     suspend fun saveWidget(id: Int, json: String, accountIds: List<String>) = database.withTransaction {

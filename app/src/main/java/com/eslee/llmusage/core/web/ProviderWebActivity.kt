@@ -301,14 +301,6 @@ class ProviderWebActivity : ComponentActivity() {
         }
     }
 
-    /** The lines around the usage label only, so a diagnosis never carries the page. */
-    private fun usageContext(text: String): String {
-        val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
-        val anchor = lines.indexOfFirst { Regex("한도|limit|usage|사용량", RegexOption.IGNORE_CASE).containsMatchIn(it) }
-        if (anchor < 0) return "no usage label among ${lines.size} lines"
-        return lines.subList(anchor, minOf(lines.size, anchor + 16)).joinToString(" | ")
-    }
-
     private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {
         val decision = WebNavigationPolicy.inspect(url, hosts)
         Log.i(NAV_LOG, "nav ${WebNavigationPolicy.redact(url)} decision=$decision main=$mainFrame")
@@ -449,7 +441,7 @@ class ProviderWebActivity : ComponentActivity() {
                 val page = WebUsageReader.capture(web)
                 if (closing || browser !== web) return@launch
                 if (page != null && UsageSurface.canCollect(page.url, provider.usageUrl, page.text, page.hasPassword)) {
-                    val result = graph.repository.recordWeb(accountId, page.text, page.rich)
+                    val result = graph.repository.recordWeb(accountId, page.text, page.rich, recordFailure = toast)
                     if (closing || browser !== web) return@launch
                     saved = result is ProviderResult.Success
                     // A parse can succeed on a reset time alone and store a bucket with
@@ -460,8 +452,8 @@ class ProviderWebActivity : ComponentActivity() {
                         // around the label is the only thing left that explains it.
                         // Both captures are shown: if the figure is absent from each,
                         // it is not in the document at all.
-                        WebTrace.record("read-context", usageContext(page.text))
-                        WebTrace.record("rich-context", if (page.rich.isBlank()) "empty" else usageContext(page.rich))
+                        WebTrace.record("read-context", WebUsageReader.usageContext(page.text))
+                        WebTrace.record("rich-context", if (page.rich.isBlank()) "empty" else WebUsageReader.usageContext(page.rich))
                     }
                     WebTrace.record("read", when (result) {
                         is ProviderResult.Success -> result.snapshot.buckets.joinToString(" ") { bucket ->

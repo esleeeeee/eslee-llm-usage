@@ -50,6 +50,21 @@ object UsageLabels {
 
     fun resetAbsolute(resetAt: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(resetAt))
 
+    /** "2일 5시간 남음" / "5시간 20분 남음" / "20분 남음": the countdown with room for two units. */
+    fun resetLeft(context: Context, resetAt: Long?, now: Long = System.currentTimeMillis()): String? {
+        val left = countdown(resetAt, now) ?: return null
+        return when {
+            left.days == 0L && left.hours == 0L && left.minutes == 0L -> context.getString(R.string.widget_reset_passed)
+            left.days > 0 -> context.getString(R.string.widget_left_days_hours, left.days, left.hours)
+            left.hours > 0 -> context.getString(R.string.widget_left_hours_minutes, left.hours, left.minutes)
+            else -> context.getString(R.string.widget_left_minutes, left.minutes)
+        }
+    }
+
+    /** "25일 16:39": when the reset happens, short enough for a widget line. */
+    fun resetOn(context: Context, resetAt: Long): String =
+        java.text.SimpleDateFormat(context.getString(R.string.widget_reset_on_pattern), java.util.Locale.getDefault()).format(Date(resetAt))
+
     /** "3일" / "5시간" / "20분": the largest unit that is not zero, for a caption or a summary. */
     fun countdownCompact(context: Context, at: Long?, now: Long = System.currentTimeMillis()): String? {
         val left = countdown(at, now) ?: return null

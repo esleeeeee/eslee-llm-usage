@@ -11,6 +11,8 @@ import com.eslee.llmusage.usage.UsageRepository
 /**
  * One ring on the widget. The number is always the share left, like the figure
  * on a battery, so a ring and its number can never contradict each other.
+ * [caption] is the one-line countdown ("↻ 3일"); a taller widget shows [detail]
+ * ("2일 5시간 남음") and [resetOn] ("25일 16:39") instead.
  */
 data class WidgetSlot(
     val accountId: String?,
@@ -20,6 +22,8 @@ data class WidgetSlot(
     val number: String,
     val caption: String?,
     val warning: Boolean,
+    val detail: String? = caption,
+    val resetOn: String? = null,
 )
 
 object WidgetStateMapper {
@@ -58,7 +62,9 @@ object WidgetStateMapper {
         val title = if (bucket != null && labelled) "${account.alias} · ${UsageLabels.bucketShort(context, bucket)}" else account.alias
         // A warning outranks the countdown: a stale reset time is not worth the line.
         val caption = status ?: bucket?.let { UsageLabels.resetCompact(context, it.resetAt, now) }
-        return WidgetSlot(account.id, account.providerId, title, remaining, GaugeGeometry.numberText(remaining), caption, status != null)
+        val detail = status ?: bucket?.let { UsageLabels.resetLeft(context, it.resetAt, now) }
+        val resetOn = bucket?.resetAt?.let { UsageLabels.resetOn(context, it) }
+        return WidgetSlot(account.id, account.providerId, title, remaining, GaugeGeometry.numberText(remaining), caption, status != null, detail, resetOn)
     }
 
     /**
@@ -75,13 +81,17 @@ object WidgetStateMapper {
             val snapshot = source.latest(account.id)
             val status = status(context, account, snapshot, settings.staleHours, now)
             val credits = snapshot?.resetCredits.orEmpty()
+            // A reading that never saw the reset section says nothing about the count: show
+            // that as unknown. It used to read "0개" for accounts that hold credits.
+            val known = snapshot?.resetCreditsKnown == true
             val soonest = credits.mapNotNull { it.expiresAt }.minOrNull()
             val caption = status ?: when {
+                !known -> context.getString(R.string.reset_credits_unknown)
                 credits.isEmpty() -> context.getString(R.string.reset_credits_none)
                 soonest == null -> context.getString(R.string.reset_credit_expiry_unknown)
                 else -> context.getString(R.string.expires_in, UsageLabels.countdownCompact(context, soonest, now))
             }
-            ResetSlot(account.id, account.providerId, account.alias, credits.size, soonest, caption, status != null)
+            ResetSlot(account.id, account.providerId, account.alias, credits.size, soonest, caption, status != null, known)
         }
     }
 }
@@ -94,4 +104,5 @@ data class ResetSlot(
     val expiresAt: Long?,
     val caption: String,
     val warning: Boolean,
+    val known: Boolean = true,
 )

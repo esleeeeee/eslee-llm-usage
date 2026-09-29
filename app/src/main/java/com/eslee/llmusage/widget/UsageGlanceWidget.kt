@@ -63,18 +63,22 @@ import kotlinx.coroutines.withContext
 
 /** Set by the refresh button and cleared when its full worker pass finishes. */
 private val REFRESHING = booleanPreferencesKey("refreshing")
-/** When the last full pass finished; the button stays green for a moment after it. */
+/** When the last full pass finished; the button keeps its outcome colour for a moment after it. */
 private val REFRESHED_AT = longPreferencesKey("refreshed_at")
-/** How long the button shows green once a pass is done. */
+/** Whether every account in that pass was read. */
+private val REFRESH_OK = booleanPreferencesKey("refresh_ok")
+/** How long the button shows the outcome once a pass is done. */
 const val REFRESH_DONE_MILLIS = 3_000L
 
 /** What the refresh button is telling the user. */
-enum class RefreshState { IDLE, RUNNING, DONE }
+enum class RefreshState { IDLE, RUNNING, DONE, FAILED }
 
 fun refreshState(preferences: Preferences, now: Long = System.currentTimeMillis()): RefreshState = when {
     preferences[REFRESHING] == true -> RefreshState.RUNNING
     // The finish pass removes the mark itself; the time guard only covers a process killed in between.
-    preferences[REFRESHED_AT]?.let { now - it in 0 until REFRESH_DONE_MILLIS * 4 } == true -> RefreshState.DONE
+    preferences[REFRESHED_AT]?.let { now - it in 0 until REFRESH_DONE_MILLIS * 4 } == true ->
+        // Green only when every account was read: a pass that kept old numbers must not look like one that renewed them.
+        if (preferences[REFRESH_OK] == false) RefreshState.FAILED else RefreshState.DONE
     else -> RefreshState.IDLE
 }
 
@@ -114,6 +118,7 @@ private class Palette(dark: Boolean, background: WidgetBackground) {
     val muted = ColorProvider(if (dark) Color(0xA6F3F5F8) else Color(0x9915181D))
     val warning = ColorProvider(if (dark) Color(0xFFFFB92E) else Color(0xFFB07500))
     val done = ColorProvider(Color(GaugeGeometry.fillArgb(GaugeGeometry.Level.HIGH, dark)))
+    val failed = ColorProvider(Color(GaugeGeometry.fillArgb(GaugeGeometry.Level.LOW, dark)))
     val panel: Color? = when (background) {
         WidgetBackground.TRANSLUCENT -> if (dark) Color(0xCC15181D) else Color(0xD9FFFFFF)
         WidgetBackground.SOLID -> if (dark) Color(0xFF15181D) else Color(0xFFFFFFFF)
@@ -171,13 +176,16 @@ private fun Content(context: Context, config: WidgetConfig, slots: List<WidgetSl
                     context.getString(when (refresh) {
                         RefreshState.RUNNING -> R.string.widget_refreshing
                         RefreshState.DONE -> R.string.widget_refreshed
+                        RefreshState.FAILED -> R.string.widget_refresh_failed
                         RefreshState.IDLE -> R.string.widget_refresh
                     }),
                     GlanceModifier.size(18.dp),
-                    // Amber while the pass runs, green for a moment when it is done, then quiet again.
+                    // Amber while the pass runs, then for a moment green when every account was
+                    // read or red when one was not, then quiet again.
                     colorFilter = ColorFilter.tint(when (refresh) {
                         RefreshState.RUNNING -> palette.warning
                         RefreshState.DONE -> palette.done
+                        RefreshState.FAILED -> palette.failed
                         RefreshState.IDLE -> palette.muted
                     }),
                 )
@@ -219,13 +227,24 @@ private fun Ring(context: Context, slot: WidgetSlot, grid: WidgetGrid, palette: 
             )
         }
         if (grid.showCaption) {
-            // A ring without a countdown keeps the line, so every ring in the row sits at the same height.
+            // A ring without a countdown keeps its lines, so every ring in the row sits at the same height.
+            val color = if (slot.warning) palette.warning else palette.muted
             Spacer(GlanceModifier.height(WidgetLayoutResolver.CAPTION_GAP.dp))
+            // With a second line to spare the countdown is spelled out ("2일 5시간 남음")
+            // and the moment of the reset follows it ("25일 16:39").
             Text(
-                slot.caption ?: " ",
-                style = TextStyle(color = if (slot.warning) palette.warning else palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
+                (if (grid.showDetail) slot.detail else slot.caption) ?: " ",
+                style = TextStyle(color = color, fontSize = captionSize.sp, textAlign = TextAlign.Center),
                 maxLines = 1,
             )
+            if (grid.showDetail) {
+                Spacer(GlanceModifier.height(WidgetLayoutResolver.CAPTION_GAP.dp))
+                Text(
+                    slot.resetOn ?: " ",
+                    style = TextStyle(color = palette.muted, fontSize = captionSize.sp, textAlign = TextAlign.Center),
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -238,37 +257,41 @@ class UsageWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWi
 /** Every widget class this app installs; their configurations share one store keyed by widget id. */
 private val widgetReceivers = listOf(UsageWidgetReceiver::class.java, ResetsWidgetReceiver::class.java)
 
+/** Ids of every widget of this app on the home screen, of either kind. */
+fun installedWidgetIds(context: Context): Set<Int> {
+    val manager = AppWidgetManager.getInstance(context)
+    return widgetReceivers.flatMap { manager.getAppWidgetIds(ComponentName(context, it)).toList() }.toSet()
+}
+
 /** Redraws every widget from the database; called after each account is saved. */
 suspend fun updateWidgets(context: Context) {
-    runCatching {
-        val manager = AppWidgetManager.getInstance(context)
-        val active = widgetReceivers.flatMap { manager.getAppWidgetIds(ComponentName(context, it)).toList() }.toSet()
-        WidgetConfigStore(context).prune(active)
-    }
+    runCatching { WidgetConfigStore(context).prune(installedWidgetIds(context)) }
     UsageGlanceWidget().updateAll(context)
     ResetsGlanceWidget().updateAll(context)
 }
 
 /**
  * Only the manually requested full pass owns the refresh indicator. The button
- * turns green when the pass is over and goes quiet a few seconds later. Glance
- * redraws a widget when its state changes, not when time passes, so the quiet
- * button needs the mark removed from the state, not merely a second update:
- * CI caught the button staying green after a pass when only time had moved.
+ * shows the outcome -- green when every account was read, red when one was not --
+ * and goes quiet a few seconds later. Glance redraws a widget when its state
+ * changes, not when time passes, so the quiet button needs the mark removed from
+ * the state, not merely a second update: CI caught the button staying green
+ * after a pass when only time had moved.
  */
-suspend fun finishWidgetRefresh(context: Context) {
+suspend fun finishWidgetRefresh(context: Context, ok: Boolean = true) {
     val ids = runCatching { GlanceAppWidgetManager(context).getGlanceIds(UsageGlanceWidget::class.java) }.getOrDefault(emptyList())
     runCatching {
         ids.forEach { id ->
             updateAppWidgetState(context, id) {
                 it.remove(REFRESHING)
                 it[REFRESHED_AT] = System.currentTimeMillis()
+                it[REFRESH_OK] = ok
             }
         }
     }
     UsageGlanceWidget().updateAll(context)
     delay(REFRESH_DONE_MILLIS)
-    runCatching { ids.forEach { id -> updateAppWidgetState(context, id) { it.remove(REFRESHED_AT) } } }
+    runCatching { ids.forEach { id -> updateAppWidgetState(context, id) { it.remove(REFRESHED_AT); it.remove(REFRESH_OK) } } }
     UsageGlanceWidget().updateAll(context)
 }
 
