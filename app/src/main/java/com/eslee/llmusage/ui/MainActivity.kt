@@ -45,8 +45,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 
-/** How long a release check result is trusted before the app asks GitHub again. */
-private const val UPDATE_CHECK_INTERVAL = 6 * 3_600_000L
+/** How long an answer from GitHub is trusted before the app asks again. */
+private const val UPDATE_CHECK_INTERVAL = 30 * 60_000L
 /** How long after the app opens before it asks GitHub at all. */
 private const val UPDATE_CHECK_DELAY = 5_000L
 
@@ -128,19 +128,39 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
     }
     BackHandler(stack.contains('>')) { pop() }
     val backgroundAllowed = rememberBackgroundAllowed()
-    // A newer build on GitHub Releases is offered once every few hours, unless this version was skipped.
+    // A newer build on GitHub Releases is offered, unless this version was skipped.
     var update by remember { mutableStateOf<UpdateChecker.Available?>(null) }
-    LaunchedEffect(settings.updatePrompts) {
-        if (!settings.updatePrompts) return@LaunchedEffect
-        // Let the screen settle first: a prompt that pops the moment the app opens is in the
-        // way, and the TLS handshake is work the first taps should not compete with.
-        delay(UPDATE_CHECK_DELAY)
-        val stored = graph.settings.current()
-        if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@LaunchedEffect
-        val found = UpdateChecker().check(BuildConfig.VERSION_NAME)
+    val latestVersion = stringResource(R.string.update_latest, BuildConfig.VERSION_NAME)
+    val checkFailed = stringResource(R.string.update_check_failed)
+    /** Asks GitHub; only an answer counts as a check, so an offline attempt is simply tried next time. */
+    suspend fun checkForUpdate(): UpdateChecker.Outcome {
+        val outcome = UpdateChecker().check(BuildConfig.VERSION_NAME)
         // A transactional edit: a theme the user picks meanwhile must not be put back.
-        runCatching { graph.settings.edit { it.copy(updateCheckedAt = System.currentTimeMillis()) } }
-        if (found != null && found.version != stored.updateSkipped) update = found
+        if (outcome != UpdateChecker.Outcome.Failed) runCatching { graph.settings.edit { it.copy(updateCheckedAt = System.currentTimeMillis()) } }
+        return outcome
+    }
+    // Checked each time the app comes to the front. It used to be once when the screen was
+    // first built and then not for six hours, so a release made after the morning's check
+    // went unnoticed for the rest of the day (reported on 0.2.6 -> 0.2.7).
+    LaunchedEffect(lifecycleOwner, settings.updatePrompts) {
+        if (!settings.updatePrompts) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // Let the screen settle first: a prompt that pops the moment the app opens is in the
+            // way, and the TLS handshake is work the first taps should not compete with.
+            delay(UPDATE_CHECK_DELAY)
+            val stored = graph.settings.current()
+            if (!stored.updatePrompts || System.currentTimeMillis() - stored.updateCheckedAt < UPDATE_CHECK_INTERVAL) return@repeatOnLifecycle
+            val outcome = checkForUpdate()
+            if (outcome is UpdateChecker.Outcome.Newer && outcome.available.version != stored.updateSkipped) update = outcome.available
+        }
+    }
+    /** The settings button: asked for explicitly, so a skipped version is offered again. */
+    fun checkNow() = settle {
+        when (val outcome = checkForUpdate()) {
+            is UpdateChecker.Outcome.Newer -> update = outcome.available
+            UpdateChecker.Outcome.Current -> snackbar.showSnackbar(latestVersion)
+            UpdateChecker.Outcome.Failed -> snackbar.showSnackbar(checkFailed)
+        }
     }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
         update?.let { found ->
@@ -189,7 +209,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
             "diagnostics" -> DiagnosticsScreen(graph, onBack = ::pop)
             "widgets" -> WidgetsScreen(accounts, graph, onBack = ::pop)
             "settings" -> SettingsScreen(settings, accounts, onChange = { settle { graph.settings.update(it) } }, onBack = ::pop,
-                backgroundAllowed = backgroundAllowed, onAllowBackground = { BatteryExemption.request(context) },
+                backgroundAllowed = backgroundAllowed, onAllowBackground = { BatteryExemption.request(context) }, onCheckUpdate = ::checkNow,
                 onDiagnostics = { push("diagnostics") }, onProviders = { push("providers") }, onWidgets = { push("widgets") },
                 onClear = { kind -> action {
                     when (kind) { 0 -> graph.repository.clearCredentials(apiOnly = true); 1 -> graph.repository.clearCredentials(webOnly = true); else -> graph.repository.clearData() }

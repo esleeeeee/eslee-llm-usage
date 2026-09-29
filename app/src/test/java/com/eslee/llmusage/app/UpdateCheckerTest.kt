@@ -48,4 +48,19 @@ class UpdateCheckerTest {
         assertNull(UpdateChecker.available(UpdateChecker.parse("<html>rate limited</html>"), installed = "0.2.4"))
         assertNull(UpdateChecker.available(UpdateChecker.parse("[]"), installed = "0.2.4"))
     }
+
+    /** Reported: 0.2.6 never offered 0.2.7. A check that failed must not count as one that found nothing. */
+    @Test fun aFailedCheckIsNotMistakenForTheLatestVersion() = kotlinx.coroutines.runBlocking {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(403).setBody("""{"message":"API rate limit exceeded"}"""))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(listing))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(listing))
+            val checker = UpdateChecker(server.url("/releases").toString())
+            assertEquals(UpdateChecker.Outcome.Failed, checker.check("0.2.4"))
+            val newer = checker.check("0.2.4")
+            assertTrue(newer is UpdateChecker.Outcome.Newer)
+            assertEquals("0.2.5", (newer as UpdateChecker.Outcome.Newer).available.version)
+            assertEquals(UpdateChecker.Outcome.Current, checker.check("0.2.5"))
+        }
+    }
 }

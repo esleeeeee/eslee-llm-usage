@@ -19,7 +19,7 @@ import com.eslee.llmusage.usage.AccountOverview
 @Composable
 internal fun SettingsScreen(
     settings: AppSettings, accounts: List<AccountOverview>, onChange: (AppSettings) -> Unit, onBack: () -> Unit,
-    backgroundAllowed: Boolean, onAllowBackground: () -> Unit,
+    backgroundAllowed: Boolean, onAllowBackground: () -> Unit, onCheckUpdate: () -> Unit,
     onDiagnostics: () -> Unit, onProviders: () -> Unit, onWidgets: () -> Unit, onClear: (Int) -> Unit,
 ) {
     var clear by remember { mutableStateOf<Int?>(null) }
@@ -89,6 +89,7 @@ internal fun SettingsScreen(
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 )
                 HorizontalDivider()
+                LinkRow(stringResource(R.string.update_check_now), null, onClick = onCheckUpdate)
                 LinkRow(stringResource(R.string.diagnostics), stringResource(R.string.diagnostics_body), onClick = onDiagnostics)
                 LinkRow(stringResource(R.string.provider_status), null, last = true, onClick = onProviders)
             }

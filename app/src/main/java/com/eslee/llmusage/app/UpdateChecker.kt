@@ -29,12 +29,25 @@ class UpdateChecker(
     /** A newer build: its version, the release page, and the APK when the release carries one. */
     data class Available(val version: String, val page: String, val apk: String?)
 
-    suspend fun check(installed: String): Available? = withContext(Dispatchers.IO) {
+    /**
+     * What a check found. A failed check is kept apart from "no newer build":
+     * counting a check made offline as done used to silence the next ones.
+     */
+    sealed interface Outcome {
+        data class Newer(val available: Available) : Outcome
+        data object Current : Outcome
+        data object Failed : Outcome
+    }
+
+    suspend fun check(installed: String): Outcome = withContext(Dispatchers.IO) {
         runCatching {
             client.newCall(Request.Builder().url(endpoint).header("Accept", "application/vnd.github+json").build()).execute().use { response ->
-                if (!response.isSuccessful) null else available(parse(response.body?.string().orEmpty()), installed)
+                val releases = if (response.isSuccessful) parse(response.body?.string().orEmpty()) else emptyList()
+                // An empty or unreadable listing says nothing about what is published.
+                if (releases.isEmpty()) Outcome.Failed
+                else available(releases, installed)?.let { Outcome.Newer(it) } ?: Outcome.Current
             }
-        }.getOrNull()
+        }.getOrDefault(Outcome.Failed)
     }
 
     companion object {
