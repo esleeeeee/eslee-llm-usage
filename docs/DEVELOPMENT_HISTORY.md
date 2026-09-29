@@ -1118,6 +1118,8 @@ CI 1차(6d10d02): 계기 테스트 30개 중 29개 통과. 실패 1건은 새로
 
 CI 2차(363e95a): 32개 중 30개 통과(새 `BackgroundPageTest` 6건 모두 통과). 실패 2건 `EmulatorJourneyTest.apiAccountFormCanBeSavedWithKeyboardOnSmallScreen`(키보드가 10초 안에 안 뜸)과 `WidgetRefreshIntegrationTest`(키보드가 보인다고 판단해 탭 대기 15초 초과)는 둘 다 키보드 상태였다. 포커스 호출이 없던 1차에서는 두 테스트 모두 그 지점을 지났으므로 포커스 호출을 원인으로 보고 뺐다.
 
+CI 3차(063a43c): 계기 테스트 **32개 모두 통과**(키보드 테스트 2건 포함), v0.2.8 프리릴리스 게시(`eslee-llm-usage-v0.2.8.apk`). 에뮬레이터 기록(`qa/background-page.txt`, WebView 124, 2차 실행분): 그리지 않은 페이지 4초 47프레임·늦은 rAF·화면 진입 감지 모두 동작, 깨우기 후 페이지가 숨김 1회·보임 1회를 들음. 3차에서도 두 테스트 모두 통과했다.
+
 ### 미검증
 
 - 실기기 Grok이 "돌아옴" 신호로 새 값을 받는지. 설치 후 새로고침하고 **설정 → 진단 → 공유**의 `bg-read grok`, `bg-net`, `bg-storage` 줄을 보면 된다: `was[...]`가 붙거나 수치가 사이트와 같으면 해결. 여전히 옛 값이면 `bg-net`에 사용량 요청이 있는지, `cache`인지로 원인을 가른다.
