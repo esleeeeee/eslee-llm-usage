@@ -104,7 +104,8 @@
     <string name="primary">Primary</string>
     <string name="sync_settings">Sync</string>
     <string name="interval">Sync interval</string>
-    <string name="wifi_only">Wi-Fi only</string>
+    <string name="wifi_only">Unmetered networks only</string>
+    <string name="unmetered_only_body">Automatic sync follows Android’s network cost setting, including unmetered mobile networks. Manual refresh works on any network.</string>
     <string name="stale_threshold">Stale threshold</string>
     <string name="retention">Snapshot retention</string>
     <string name="appearance">Appearance</string>

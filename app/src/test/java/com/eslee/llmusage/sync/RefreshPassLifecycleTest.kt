@@ -33,22 +33,24 @@ class RefreshPassLifecycleTest {
 
     @Test fun cancellationStillRunsSuspendingIndicatorCleanup() = runTest {
         var finished = false
+        var completed: Boolean? = null
         val pass = launch {
-            completeRefreshPass(true, { kotlinx.coroutines.yield(); finished = true }) {
+            completeRefreshPass(true, { success -> kotlinx.coroutines.yield(); finished = true; completed = success }) {
                 CompletableDeferred<Unit>().await()
             }
         }
         runCurrent()
         pass.cancelAndJoin()
         assertTrue(finished)
+        assertEquals(false, completed)
     }
 
     @Test fun emptyCollectionAndFailedCollectionBothReleaseIndicator() = runTest {
         var finishes = 0
-        completeRefreshPass(true, { finishes++ }) { Unit }
+        completeRefreshPass(true, { completed -> assertTrue(completed); finishes++ }) { Unit }
         val failure = IllegalStateException("storage unavailable")
         val result = runCatching {
-            completeRefreshPass(true, { finishes++ }) { throw failure }
+            completeRefreshPass(true, { completed -> assertFalse(completed); finishes++ }) { throw failure }
         }
         assertSame(failure, result.exceptionOrNull())
         assertEquals(2, finishes)

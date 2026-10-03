@@ -40,15 +40,17 @@
 
 ## Provider 지원
 
-| 서비스 | 수집 범위 | 갱신 | 검증 상태 |
+| 구분·서비스 | 수집 범위 | 갱신 | 실서비스 검증 근거 |
 | --- | --- | --- | --- |
-| Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | 실험적 parser, 실계정 에뮬레이터·위젯 수집 확인 |
-| Claude | 표시된 세션·주간 한도 | 앱 내 웹 화면 | 실험적 parser, 실로그인 미검증 |
-| Grok | Settings Usage 주간 %, 제품별 비율, reset, Extra Usage Credits | 자동 WebView 수집, `?_s=usage` | 실험적 parser, 실계정 에뮬레이터·위젯 수집 확인 |
-| OpenAI API | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
-| Anthropic API | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현, 실계정 미검증 |
-| xAI API | UTC 오늘 팀 API 비용 | Management key와 Team ID, 백그라운드 | 공식 API 구현, 실계정 미검증 |
-| Gemini / Perplexity | 검증된 연결 없음 | 없음 | 미지원 사유 표시 |
+| Consumer · Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | [v0.2.4 실계정 에뮬레이터·위젯 기록](docs/QA_V024.md). 이번 수정의 실계정 재검증은 미실시 |
+| Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집 | fixture 검사만 수행, 실로그인 미검증 |
+| Consumer · Grok | Settings Usage 주간 %, reset, Extra Usage Credits. 제품별 비율은 한도에서 제외 | 자동 WebView 수집, `?_s=usage` | [v0.2.4 실계정 에뮬레이터·위젯 기록](docs/QA_V024.md). 이번 수정의 실계정 재검증은 미실시 |
+| API · OpenAI | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
+| API · Anthropic | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
+| API · xAI | UTC 오늘 팀 API 비용 | Management key와 Team ID, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
+| Consumer · Gemini / Perplexity | 검증된 연결 없음 | 없음 | 미지원 사유 표시 |
+
+이번 자동 회귀 검증은 v0.2.10 소스에 적용한 감사 수정 기준이며, 테스트 전용 AVD의 Demo·synthetic HTML을 사용합니다. 실제 휴대폰·One UI 런처·모든 언어/요금제에서의 동작을 보증하지 않습니다. 과거 실계정 확인과 현재 자동 검사 결과는 별도로 기록합니다.
 
 API 사용량은 ChatGPT Plus, Claude Pro/Max, SuperGrok 구독 한도와 다른 상품의 데이터입니다. API에서 구독 잔여 퍼센트를 만들지 않습니다. 전체 한도를 모르는 데이터는 실제 토큰·요청·비용만 표시합니다.
 
@@ -58,7 +60,9 @@ API 사용량은 ChatGPT Plus, Claude Pro/Max, SuperGrok 구독 한도와 다른
 2. 계정 추가에서 서비스를 선택합니다. 로컬 debug 빌드에서는 Demo로 화면을 먼저 확인할 수 있습니다(배포 APK에는 없습니다).
 3. 소비자 서비스는 계정별로 로그인하면 기존 세션으로 사용량을 자동 수집합니다. 웹 계정은 백그라운드에서 15분 주기(절전 시 지연 가능), 앱 화면을 열어 둔 동안 5분 주기로 갱신합니다. 앱/위젯 새로고침은 수집·저장을 실행하며 인증이 만료된 경우에만 로그인이 필요합니다. 설정에서 자동 갱신을 끄면 정기 수집을 중지합니다.
 4. 홈 화면의 위젯 선택에서 eslee LLM Usage를 추가하고 계정과 항목을 고릅니다. 링을 누르면 해당 계정 상세가 열립니다.
-5. 위젯을 가로로 넓히면 링이 나란히 늘어나고(약 64dp당 1개), 세로로 늘리면 두 번째 줄이 생깁니다. 높이가 모자라면 초기화 캡션, 별칭 순으로 생략되고 링은 항상 남습니다.
+5. 위젯을 가로로 넓히면 링이 나란히 늘어나고(폭 약 72dp당 한 칸 추정), 세로로 늘리면 두 번째 줄이 생깁니다. 런처의 셀 크기에 따라 실제 열 수가 달라질 수 있습니다. 높이가 모자라면 초기화 캡션, 별칭 순으로 생략되고 링은 항상 남습니다.
+
+자동 갱신의 '비과금 네트워크에서만' 설정은 Android의 비용 판정을 사용합니다. 비과금 이동통신은 허용하고 과금 Wi-Fi는 제한합니다. 사용자가 누르는 수동 갱신에는 적용되지 않습니다.
 
 Android System WebView의 MULTI_PROFILE 지원이 필요합니다. 미지원 환경에서는 안전한 세션 격리를 위해 소비자 웹 계정 추가를 차단합니다. API 계정은 영향을 받지 않습니다.
 

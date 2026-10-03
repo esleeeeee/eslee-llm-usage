@@ -17,8 +17,10 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 object SyncScheduler {
-    fun allowsForeground(context: Context, settings: AppSettings): Boolean = settings.intervalMinutes != 0L &&
-        (!settings.wifiOnly || !context.getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered)
+    fun allowsForeground(context: Context, settings: AppSettings): Boolean = allowsAutomaticSync(
+        settings,
+        context.getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered,
+    )
 
     fun schedule(context: Context, settings: AppSettings) {
         val manager = WorkManager.getInstance(context)
@@ -70,7 +72,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         var failed = 0
         return completeRefreshPass(
             ownsIndicator = manual,
-            finish = { finishWidgetRefresh(applicationContext, ok = failed == 0) },
+            finish = { completed -> finishWidgetRefresh(applicationContext, ok = completed && failed == 0) },
         ) {
             try {
                 if (id == null) failed = repository.refreshAll(when (scope) { "web" -> true; "api" -> false; else -> null })
@@ -120,13 +122,21 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 /** Release the manual-refresh indicator even when a worker is cancelled or has no accounts. */
 internal suspend fun <T> completeRefreshPass(
     ownsIndicator: Boolean,
-    finish: suspend () -> Unit,
+    finish: suspend (completed: Boolean) -> Unit,
     collect: suspend () -> T,
-): T = try {
-    collect()
-} finally {
-    if (ownsIndicator) withContext(NonCancellable) {
-        // Widget host failures must not turn a successfully persisted collection into a retry.
-        try { finish() } catch (_: Exception) { }
+): T {
+    var completed = false
+    return try {
+        collect().also { completed = true }
+    } finally {
+        if (ownsIndicator) withContext(NonCancellable) {
+            // Cancellation still releases the indicator, but cannot claim a completed collection.
+            // Widget host failures must not turn a successfully persisted collection into a retry.
+            try { finish(completed) } catch (_: Exception) { }
+        }
     }
 }
+
+/** Cost policy, not a Wi-Fi transport test. Keep the stored wifiOnly key for compatibility. */
+internal fun allowsAutomaticSync(settings: AppSettings, isMetered: Boolean): Boolean =
+    settings.intervalMinutes != 0L && (!settings.wifiOnly || !isMetered)

@@ -104,7 +104,8 @@
     <string name="primary">대표</string>
     <string name="sync_settings">동기화</string>
     <string name="interval">동기화 주기</string>
-    <string name="wifi_only">Wi-Fi에서만</string>
+    <string name="wifi_only">비과금 네트워크에서만</string>
+    <string name="unmetered_only_body">자동 갱신은 Android의 네트워크 비용 설정을 따릅니다. 비과금 이동통신도 포함되며, 수동 갱신에는 이 제한이 적용되지 않습니다.</string>
     <string name="stale_threshold">오래된 데이터 기준</string>
     <string name="retention">사용량 기록 보존</string>
     <string name="appearance">화면</string>

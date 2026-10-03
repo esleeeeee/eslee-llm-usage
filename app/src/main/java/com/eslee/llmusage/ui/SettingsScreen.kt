@@ -31,6 +31,9 @@ internal fun SettingsScreen(
                 ChoiceRow(stringResource(R.string.interval), settings.intervalMinutes, listOf(0L, 15L, 30L, 60L, 180L, 360L),
                     label = { if (it == 0L) stringResource(R.string.manual) else stringResource(R.string.minutes, it.toInt()) }) { onChange(settings.copy(intervalMinutes = it)) }
                 SwitchRow(stringResource(R.string.wifi_only), settings.wifiOnly) { onChange(settings.copy(wifiOnly = it)) }
+                Text(stringResource(R.string.unmetered_only_body),
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.battery_title)) },
                     supportingContent = { Text(stringResource(if (backgroundAllowed) R.string.battery_allowed else R.string.battery_body)) },
