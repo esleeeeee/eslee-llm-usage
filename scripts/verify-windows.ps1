@@ -38,6 +38,10 @@ try {
         $deviceLine = & adb devices | Select-String ('^' + [regex]::Escape($EmulatorSerial) + '\s+device$')
         if (!$deviceLine) { throw "Start the isolated QA emulator $EmulatorSerial before using -Connected. Do not select the live-account emulator." }
         $device = $EmulatorSerial
+        $avdName = @(& adb -s $device emu avd name)[0].Trim()
+        if ($LASTEXITCODE -ne 0 -or $avdName -ne 'eslee_qa_api35') {
+            throw "Connected verification only permits eslee_qa_api35; selected AVD is '$avdName'."
+        }
         & adb -s $device install -r app/build/outputs/apk/debug/app-debug.apk
         if ($LASTEXITCODE -ne 0) { throw 'Debug APK install failed.' }
         & adb -s $device install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk

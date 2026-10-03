@@ -54,7 +54,7 @@ PowerShell에서:
 
 ```powershell
 $env:ANDROID_HOME = "$env:USERPROFILE\.local\android-dev\sdk"
-& "$env:ANDROID_HOME\emulator\emulator.exe" -avd eslee_usage_api35 -no-audio -no-snapshot -gpu host -memory 4096 -cores 4
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd eslee_qa_api35 -port 5556 -no-audio -no-snapshot -gpu host -memory 3072 -cores 4
 ```
 
 테스트 로그/PNG는 ignored `artifacts/`와 `app/build/reports`에 저장된다. 공유 가능한 검증 요약/선별 캡처는 `docs/QA_V023.md`에 기록한다.
