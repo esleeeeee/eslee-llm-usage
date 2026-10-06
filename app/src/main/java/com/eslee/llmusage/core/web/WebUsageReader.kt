@@ -86,6 +86,7 @@ class WebUsageReader(
             var reloaded = false
             var rich = false
             var scrolledAt = 0L
+            var usageErrorSince = 0L
             var lastPage: Page? = null
             val listsResets = provider.id in BANKED_RESETS
             val deadline = started + TIMEOUT
@@ -112,6 +113,18 @@ class WebUsageReader(
                 // A verification challenge can clear itself, so it is waited out rather than failed at once.
                 verifying = kind == AuthPageKind.DEVICE_VERIFICATION
                 if (verifying || !UsageSurface.canCollect(page.url, usageUrl, page.text, page.hasPassword)) continue
+                // The official dashboard can finish with its own error instead of
+                // a transport error. Waiting out 45 seconds cannot read that page.
+                if (USAGE_ERROR.containsMatchIn(page.text)) {
+                    if (usageErrorSince == 0L) usageErrorSince = now
+                    if (now - usageErrorSince >= STABLE) {
+                        return finish(account, provider, started, ProviderResult.Failure(
+                            ProviderErrorCode.NETWORK, "서비스의 사용량 설정을 불러오지 못했습니다. 다시 새로고침해 주세요."),
+                            page, first, laterRequests.get())
+                    }
+                    continue
+                }
+                usageErrorSince = 0L
                 val result = ConsumerUsageParser.parseBest(account.providerId, account.id, page.text, page.rich.takeIf { rich })
                 if (!ConsumerUsageParser.primaryHasNumbers(result)) {
                     // Some pages draw their figures where innerText cannot see them: walk the nodes from now on.
@@ -120,6 +133,10 @@ class WebUsageReader(
                     continue
                 }
                 val snapshot = (result as ProviderResult.Success).snapshot
+                // A visible percentage does not imply that reset dates or banked
+                // credits are in innerText. Capture their structural text too.
+                if (!rich && (snapshot.buckets.any { it.resetAt == null } ||
+                    (listsResets && !snapshot.resetCreditsKnown))) rich = true
                 val next = signatureOf(snapshot)
                 if (next != signature) { signature = next; stableSince = now }
                 best = ProviderResult.Success(snapshot.copy(syncMode = SyncMode.BACKGROUND))
@@ -132,11 +149,11 @@ class WebUsageReader(
                 // Banked resets sit at the bottom of the Codex page and can arrive after the
                 // limits, or render only once scrolled to. Reported: an account holding three
                 // showed none, because the read ended before the list was there.
-                val awaitingResets = listsResets && snapshot.resetCredits.isEmpty() && now - firstFigures < RESETS_WAIT
+                val awaitingResets = listsResets && !snapshot.resetCreditsKnown && now - firstFigures < RESETS_WAIT
                 if (scrolledAt == 0L || (awaitingResets && now - scrolledAt >= RESCROLL)) {
                     // Sections further down can render only once reached.
                     scrolledAt = now
-                    web.evaluateJavascript("window.scrollTo(0,document.body?document.body.scrollHeight:0)", null)
+                    web.evaluateJavascript(SCROLL_USAGE_JS, null)
                 }
                 // A page can paint numbers it cached on an earlier visit and replace them once
                 // its own request returns. Stopping at the first numbers kept that old value
@@ -196,8 +213,10 @@ class WebUsageReader(
         if (page == null) return outcome
         if (outcome is ProviderResult.Failure && page.text.isNotBlank()) WebTrace.record("bg-context", usageContext(page.text, provider.id))
         // A limit found without its figure is shown as unknown; the lines under it say why.
-        if (outcome is ProviderResult.Success && outcome.snapshot.buckets.any { !ConsumerUsageParser.hasNumbers(it) }) {
+        if (outcome is ProviderResult.Success && (outcome.snapshot.buckets.any { !ConsumerUsageParser.hasNumbers(it) || it.resetAt == null } ||
+            (provider.id in BANKED_RESETS && !outcome.snapshot.resetCreditsKnown))) {
             WebTrace.record("bg-context", usageContext(page.text, provider.id))
+            if (page.rich.isNotBlank()) WebTrace.record("bg-metadata", usageContext(page.rich, provider.id))
         }
         if (read != null) {
             // Where a figure only the node walk reaches came from, so a wrong one can be traced to its node.
@@ -207,7 +226,8 @@ class WebUsageReader(
         }
         if (outcome is ProviderResult.Success) {
             if (provider.id in BANKED_RESETS) {
-                val section = ConsumerUsageParser.resetSection(page.text)?.take(RESET_LINES)?.joinToString(" | ")
+                val section = (ConsumerUsageParser.resetSection(page.text) ?: ConsumerUsageParser.resetSection(page.rich))
+                    ?.take(RESET_LINES)?.joinToString(" | ")
                 WebTrace.record("bg-resets", "${provider.id} \"${account.alias}\" ${section ?: "no section"}")
             }
         }
@@ -234,6 +254,20 @@ class WebUsageReader(
         /** How long after the first figures a page showing an already reset window gets to replace it. */
         const val LAPSED_WAIT = 10_000L
         private const val RESET_LINES = 12
+        private val USAGE_ERROR = Regex("사용량 설정을 불러올 수 없습니다|unable to load usage settings|could(?:n't| not) load usage settings", RegexOption.IGNORE_CASE)
+
+        // Modern usage dashboards often scroll a panel instead of the document.
+        // Reach lazy-rendered reset lists in either layout without clicking controls.
+        internal val SCROLL_USAGE_JS = """
+            (function(){
+              window.scrollTo(0,document.scrollingElement?document.scrollingElement.scrollHeight:0);
+              document.querySelectorAll('body *').forEach(function(e){
+                if(e.clientHeight<=0||e.scrollHeight<=e.clientHeight+1||!e.getClientRects().length)return;
+                var overflow=window.getComputedStyle(e).overflowY;
+                if(overflow==='auto'||overflow==='scroll')e.scrollTop=e.scrollHeight;
+              });
+            })()
+        """.trimIndent()
 
         /** [time] is the page's own clock (performance.now) at the capture, for lining up with its requests. */
         data class Page(val url: String, val text: String, val hasPassword: Boolean, val rich: String = "", val time: Long = 0)
@@ -351,8 +385,8 @@ class WebUsageReader(
          * content the engine skipped. Grok's usage page renders every label but no
          * figure that way. So a second, structural reading walks the tree for text
          * nodes in document order. The walk styles every element, which is costly
-         * on a large page, so a background read asks for it only once the painted
-         * text has shown it lacks the main figure.
+         * on a large page, so a background read asks for it when the painted
+         * text lacks a figure or the quota's reset metadata.
          */
         private fun captureScript(walkNodes: Boolean) = """
             (function(){
@@ -365,6 +399,7 @@ class WebUsageReader(
               });
               var rich=[];
               function digits(v){return v&&/[0-9]/.test(v);}
+              function usageLabel(v){return v&&/reset|usage|limit|remaining|used|available|초기화|재설정|한도|사용량|남음|사용 가능/i.test(v);}
               function pseudo(el,which){
                 try{
                   var c=window.getComputedStyle(el,which).content;
@@ -387,7 +422,7 @@ class WebUsageReader(
                   var attrs=['aria-valuetext','aria-valuenow','aria-label','title'];
                   for(var a=0;a<attrs.length;a++){
                     var v=n.getAttribute?n.getAttribute(attrs[a]):null;
-                    if(digits(v)){rich.push(String(v).replace(/\s+/g,' ').trim());break;}
+                    if(digits(v)||usageLabel(v)){rich.push(String(v).replace(/\s+/g,' ').trim());break;}
                   }
                   // Form controls hold their text in value, not in a child node.
                   if((tag==='INPUT'||tag==='TEXTAREA')&&digits(n.value))rich.push(String(n.value).trim());

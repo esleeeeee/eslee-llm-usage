@@ -6,13 +6,14 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.LocalDateTime
 import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.4"
+    const val VERSION = "1.2.5"
     /** A quota label opens a limit of its own; any other label only ends the section before it. */
     private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
     private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
@@ -98,7 +99,7 @@ object ConsumerUsageParser {
             candidates.maxByOrNull(::bucketEvidence) ?: candidates.first()
         }
         val credits = parseResetCredits(lines, fetchedAt, localZone)
-        if (buckets.isEmpty() && credits.isNullOrEmpty()) {
+        if (buckets.isEmpty() && credits == null) {
             val login = Regex("sign in to|log in to|continue with (google|apple)|이메일로 로그인|로그인하세요", RegexOption.IGNORE_CASE).containsMatchIn(visibleText)
             return ProviderResult.Failure(if (login) ProviderErrorCode.AUTH_REQUIRED else ProviderErrorCode.PARSE_FAILED,
                 if (login) "서비스에 직접 로그인한 뒤 사용량 화면을 여세요." else "알려진 사용량 숫자나 명시적인 리셋 시각을 찾지 못했습니다. 이전 결과를 유지합니다.")
@@ -210,6 +211,7 @@ object ConsumerUsageParser {
      * holds the main quota's figure. The walk is taken when only it does, instead
      * of only when the painted text had no number anywhere: a breakdown line with
      * a number of its own used to keep the walk from ever being consulted.
+     * Missing reset metadata is filled from the other capture of this same page.
      */
     fun parseBest(
         providerId: String,
@@ -220,19 +222,38 @@ object ConsumerUsageParser {
         localZone: ZoneId = ZoneId.systemDefault(),
     ): ProviderResult {
         val painted = parse(providerId, accountId, visibleText, fetchedAt, localZone)
-        if (primaryHasNumbers(painted) || richText.isNullOrBlank() || richText == visibleText) return painted
+        if (richText.isNullOrBlank() || richText == visibleText) return painted
         val walked = parse(providerId, accountId, richText, fetchedAt, localZone)
         val chosen = when {
+            primaryHasNumbers(painted) -> painted
             primaryHasNumbers(walked) -> walked
             carriesNumbers(painted) -> painted
             carriesNumbers(walked) -> walked
+            painted is ProviderResult.Success -> painted
+            walked is ProviderResult.Success -> walked
             else -> painted
         }
-        // Reset credits are plain text; keep them from whichever capture found them.
+        // Both captures are from this read. Preserve the chosen figures and fill
+        // only missing reset times for the same quota; never import other quotas.
         val other = if (chosen === walked) painted else walked
-        if (chosen is ProviderResult.Success && other is ProviderResult.Success &&
-            chosen.snapshot.resetCredits.isEmpty() && other.snapshot.resetCredits.isNotEmpty()) {
-            return ProviderResult.Success(chosen.snapshot.copy(resetCredits = other.snapshot.resetCredits))
+        if (chosen is ProviderResult.Success && other is ProviderResult.Success) {
+            val base = chosen.snapshot
+            val supplement = other.snapshot
+            // A confirmed zero is evidence, not missing data. For nonempty lists,
+            // take the more complete whole list, avoiding guessed item identities.
+            val useOtherCredits = !base.resetCreditsKnown ||
+                (base.resetCredits.isNotEmpty() && supplement.resetCreditsKnown &&
+                    (supplement.resetCredits.size > base.resetCredits.size ||
+                        (supplement.resetCredits.size == base.resetCredits.size &&
+                            supplement.resetCredits.count { it.expiresAt != null } > base.resetCredits.count { it.expiresAt != null })))
+            return ProviderResult.Success(base.copy(
+                buckets = base.buckets.map { bucket ->
+                    bucket.copy(resetAt = bucket.resetAt ?: supplement.buckets.firstOrNull { it.id == bucket.id }?.resetAt)
+                },
+                resetCredits = if (useOtherCredits) supplement.resetCredits else base.resetCredits,
+                resetCreditsKnown = if (useOtherCredits) supplement.resetCreditsKnown else base.resetCreditsKnown,
+                extraCredits = base.extraCredits ?: supplement.extraCredits,
+            ))
         }
         return chosen
     }
@@ -299,14 +320,14 @@ object ConsumerUsageParser {
         return meanings.singleOrNull() ?: PercentMeaning.UNKNOWN
     }
 
-    private val resetsHeader = Regex("사용량? 한도 재설정|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
-    private val resetsStop = Regex("추가 사용 크레딧|Extra Usage Credits|자동 충전|Auto[- ]?recharge|남은 크레딧", RegexOption.IGNORE_CASE)
+    private val resetsHeader = Regex("사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    private val resetsStop = Regex("크레딧 사용 내역|추가 사용 크레딧|Extra Usage Credits|자동 충전|Auto[- ]?recharge|남은 크레딧", RegexOption.IGNORE_CASE)
     private val expiryMarker = Regex("만료|expir", RegexOption.IGNORE_CASE)
-    private val creditItem = Regex("재설정|reset", RegexOption.IGNORE_CASE)
-    private val creditNoise = Regex("재설정 사용|use (?:a )?reset|재설정을 사용해|사용량? 한도 재설정|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    private val creditItem = Regex("재설정|초기화|reset", RegexOption.IGNORE_CASE)
+    private val creditNoise = Regex("(?:재설정|초기화) 사용|use (?:a )?reset|(?:재설정|초기화)를 사용해|재설정을 사용해|사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
     private val creditAvailable = Regex("재설정 가능|reset available", RegexOption.IGNORE_CASE)
     /** The button each banked reset carries; one per reset even where the page prints no expiry. */
-    private val creditAction = Regex("^(?:재설정 사용|재설정 사용하기|use reset|use this reset|use)$", RegexOption.IGNORE_CASE)
+    private val creditAction = Regex("^(?:초기화 사용(?: 전체 재설정(?:\\(주간 \\+ 5시간\\))?)?|재설정 사용|재설정 사용하기|use reset|use this reset|use)$", RegexOption.IGNORE_CASE)
     /** A count stated inside the section ("3개 사용 가능", "사용 가능 3개"), too generic to trust elsewhere on the page. */
     private val availableLabel = Regex("^(?:사용 가능|available)$", RegexOption.IGNORE_CASE)
     private val sectionCount = Regex("(\\d+)\\s*개\\s*(?:사용 가능|남음|보유)|사용 가능(?:한)?\\s*(?:재설정)?\\s*(\\d+)\\s*개?$|^(\\d+)\\s*(?:available|left)$", RegexOption.IGNORE_CASE)
@@ -351,11 +372,18 @@ object ConsumerUsageParser {
         val count = maxOf(explicit ?: 0, stated ?: 0, buttons)
         while (credits.size < count) credits += ResetCredit(lastLabel)
         if (credits.isEmpty() && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(label)
+        // A mounted header with a still-loading list does not establish zero.
+        if (credits.isEmpty() && explicit == null && stated == null) return null
         return credits.sortedWith(compareBy(nullsLast()) { it.expiresAt })
     }
 
-    private fun parseExpiry(line: String, now: Long, localZone: ZoneId): Long? =
-        monthDayTime(line, now, localZone) ?: absoluteTime(line, now, localZone) ?: relativeTime(line, now)
+    private fun parseExpiry(line: String, now: Long, localZone: ZoneId): Long? {
+        val zone = if (gmtToken.containsMatchIn(line)) explicitGmtOffset(line) ?: return null else localZone
+        // The Korean Codex locale prints credit dates as "10. 22. 오후 7:29 GMT".
+        val canonical = Regex("(?<![\\d.])(\\d{1,2})\\.\\s*(\\d{1,2})\\.\\s*(?=오전|오후)")
+            .replace(line) { "${it.groupValues[1]}월 ${it.groupValues[2]}일 " }
+        return monthDayTime(canonical, now, zone) ?: absoluteTime(canonical, now, zone) ?: relativeTime(canonical, now)
+    }
 
     /** "9월 21일 오전 7:41" or "Oct 4, 1:58 AM": without a year, the year is the one that keeps the moment ahead. */
     private fun monthDayTime(line: String, now: Long, localZone: ZoneId): Long? {
@@ -395,7 +423,14 @@ object ConsumerUsageParser {
     }
 
     internal fun parseReset(section: String, now: Long, localZone: ZoneId = ZoneId.systemDefault()): Long? {
-        val sectionLines = section.lines()
+        // Even the short figure window can contain the beginning of a credit list.
+        val sectionLines = section.lines().takeWhile { !resetsHeader.containsMatchIn(it) }
+        // Codex supplies a full, explicitly zoned accessibility timestamp beside
+        // the quota even when the painted Korean page omits the word "reset".
+        if (sectionLines.firstOrNull()?.let { first -> labels.values.flatten().any { it.quota && it.pattern.containsMatchIn(first) } } == true) {
+            sectionLines.drop(1).take(3).filterNot { expiryMarker.containsMatchIn(it) }
+                .firstNotNullOfOrNull(::koreanGmtTime)?.let { return it }
+        }
         val keywords = sectionLines.indices.filter { resetLabel.containsMatchIn(sectionLines[it]) }
         if (keywords.isEmpty()) return null
         // A page styles the moment and the word differently, so they are separate
@@ -416,6 +451,9 @@ object ConsumerUsageParser {
     }
 
     private fun absoluteTime(line: String, now: Long, localZone: ZoneId): Long? {
+        // An invalid explicit offset must not fall back to a date in the device zone.
+        if (gmtToken.containsMatchIn(line) && explicitGmtOffset(line) == null) return null
+        koreanGmtTime(line)?.let { return it }
         val iso = Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})").find(line)?.value
         if (iso != null) return runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
         // Grok's English UI uses the device's local time, e.g. September 25,
@@ -431,6 +469,11 @@ object ConsumerUsageParser {
                         .atZone(localZone).toInstant().toEpochMilli()
                 }.getOrNull()?.let { return it }
             }
+        }
+        // A month/day without a year is still a date, not today's clock time.
+        // The node walk may put the date and clock on adjacent lines.
+        if (Regex("\\d{1,2}월\\s*\\d{1,2}일").containsMatchIn(line)) {
+            monthDayTime(line, now, localZone)?.let { return it }
         }
         koreanResetTime.find(line)?.let { match ->
             val localNow = Instant.ofEpochMilli(now).atZone(localZone)
@@ -464,6 +507,28 @@ object ConsumerUsageParser {
             runCatching { OffsetDateTime.parse(stamp).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
         }
         return null
+    }
+
+    private val gmtToken = Regex("\\bGMT([^\\s]*)")
+
+    private fun explicitGmtOffset(line: String): ZoneOffset? {
+        val suffix = gmtToken.find(line)?.groupValues?.get(1) ?: return null
+        if (suffix.isEmpty()) return ZoneOffset.UTC
+        val offset = Regex("([+-])(\\d{1,2})(?::(\\d{2}))?").matchEntire(suffix) ?: return null
+        val canonical = offset.groupValues[1] + offset.groupValues[2].padStart(2, '0') + ":" + offset.groupValues[3].ifEmpty { "00" }
+        return runCatching { ZoneOffset.of(canonical) }.getOrNull()
+    }
+
+    private fun koreanGmtTime(line: String): Long? {
+        val match = Regex("(\\d{4})년\\s*(\\d{1,2})월\\s*(\\d{1,2})일\\s+[월화수목금토일]요일\\s+(오전|오후)\\s*(\\d{1,2})시\\s*(\\d{1,2})분\\s*(\\d{1,2})초\\s+GMT[^\\s]*").find(line) ?: return null
+        val zone = explicitGmtOffset(match.value) ?: return null
+        val rawHour = match.groupValues[5].toInt()
+        if (rawHour !in 1..12) return null
+        val hour = rawHour % 12 + if (match.groupValues[4] == "오후") 12 else 0
+        return runCatching {
+            ZonedDateTime.of(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt(),
+                hour, match.groupValues[6].toInt(), match.groupValues[7].toInt(), 0, zone).toInstant().toEpochMilli()
+        }.getOrNull()
     }
 
     private fun relativeTime(line: String, now: Long): Long? {

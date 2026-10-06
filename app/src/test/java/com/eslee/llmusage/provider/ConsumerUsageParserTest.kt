@@ -13,6 +13,146 @@ class ConsumerUsageParserTest {
     private fun parsed(provider: String, name: String): ProviderResult =
         ConsumerUsageParser.parse(provider, "account", fixture(provider, name), now, localZone)
 
+    @Test fun liveKoreanCodexGmtPlusNineDatesKeepTheSameUtcInstants() {
+        val capturedAt = Instant.parse("2026-10-06T08:00:00Z").toEpochMilli()
+        val page = """
+            5시간 단위 한도
+            2026년 10월 6일 화요일 오후 7시 25분 19초 GMT+9
+            75% 남음
+            주간 사용 한도
+            2026년 10월 13일 화요일 오후 2시 25분 19초 GMT+9
+            96% 남음
+            사용 한도 초기화
+            사용 가능 2
+            전체 재설정(주간 + 5시간)
+            10. 23. 오전 4:29 GMT+9 만료
+            초기화 사용 전체 재설정(주간 + 5시간)
+            전체 재설정(주간 + 5시간)
+            10. 30. 오전 1:39 GMT+9 만료
+            초기화 사용 전체 재설정(주간 + 5시간)
+        """.trimIndent()
+        for (offset in listOf("GMT+9", "GMT+09:00")) {
+            val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page.replace("GMT+9", offset), capturedAt, localZone) as ProviderResult.Success).snapshot
+            assertEquals(Instant.parse("2026-10-06T10:25:19Z").toEpochMilli(), snapshot.buckets[0].resetAt)
+            assertEquals(Instant.parse("2026-10-13T05:25:19Z").toEpochMilli(), snapshot.buckets[1].resetAt)
+            assertEquals(2, snapshot.resetCredits.size)
+            assertEquals(Instant.parse("2026-10-22T19:29:00Z").toEpochMilli(), snapshot.resetCredits[0].expiresAt)
+            assertEquals(Instant.parse("2026-10-29T16:39:00Z").toEpochMilli(), snapshot.resetCredits[1].expiresAt)
+        }
+    }
+
+    @Test fun explicitNegativeGmtOffsetIsUsedAndInvalidOffsetsStayUnknown() {
+        val quota = "5시간 단위 한도\n2026년 10월 6일 화요일 오후 7시 25분 19초 GMT-4:30\n75% 남음"
+        val negative = quota + "\n사용 한도 초기화\n사용 가능 1\n전체 재설정\n10. 23. 오전 4:29 GMT-4:30 만료"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", negative, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(Instant.parse("2026-10-06T23:55:19Z").toEpochMilli(), snapshot.buckets.single().resetAt)
+        assertEquals(Instant.parse("2026-10-23T08:59:00Z").toEpochMilli(), snapshot.resetCredits.single().expiresAt)
+        for (invalid in listOf("GMT+25", "GMT+09:99", "GMT+9oops", "GMT+")) {
+            val text = quota.replace("GMT-4:30", invalid) + "\n초기화\n사용 한도 초기화\n사용 가능 1\n전체 재설정\n10. 23. 오전 4:29 $invalid 만료"
+            val parsed = (ConsumerUsageParser.parse("chatgpt", "a", text, now, localZone) as ProviderResult.Success).snapshot
+            assertNull("invalid quota offset $invalid", parsed.buckets.single().resetAt)
+            assertEquals(1, parsed.resetCredits.size)
+            assertNull("invalid expiry offset $invalid", parsed.resetCredits.single().expiresAt)
+        }
+    }
+
+    @Test fun liveKoreanCodexAccessibilityDatesAndResetCreditsUseExplicitGmt() {
+        val capturedAt = Instant.parse("2026-10-06T08:00:00Z").toEpochMilli()
+        val page = """
+            5시간 단위 한도
+            2026년 10월 6일 화요일 오전 10시 25분 19초 GMT
+            75% 남음
+            주간 사용 한도
+            2026년 10월 13일 화요일 오전 5시 25분 19초 GMT
+            96% 남음
+            사용 한도 초기화
+            초기화를 사용해 5시간 한도나 주간 한도, 또는 두 한도를 모두 복원하세요
+            사용 한도 재설정
+            사용 가능 2
+            전체 재설정(주간 + 5시간)
+            10. 22. 오후 7:29 GMT 만료
+            초기화 사용 전체 재설정(주간 + 5시간)
+            전체 재설정(주간 + 5시간)
+            10. 29. 오후 4:39 GMT 만료
+            초기화 사용 전체 재설정(주간 + 5시간)
+            크레딧 사용 내역
+        """.trimIndent()
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, capturedAt, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("session", "weekly"), snapshot.buckets.map { it.id })
+        assertEquals(75.0, snapshot.buckets[0].remainingPercent!!, 0.0)
+        assertEquals(96.0, snapshot.buckets[1].remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-10-06T10:25:19Z").toEpochMilli(), snapshot.buckets[0].resetAt)
+        assertEquals(Instant.parse("2026-10-13T05:25:19Z").toEpochMilli(), snapshot.buckets[1].resetAt)
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(Instant.parse("2026-10-22T19:29:00Z").toEpochMilli(), snapshot.resetCredits[0].expiresAt)
+        assertEquals(Instant.parse("2026-10-29T16:39:00Z").toEpochMilli(), snapshot.resetCredits[1].expiresAt)
+
+        val noQuotaDates = page.lines().filterNot { it.contains("요일") }.joinToString("\n")
+        val withoutDates = (ConsumerUsageParser.parse("chatgpt", "a", noQuotaDates, capturedAt, localZone) as ProviderResult.Success).snapshot
+        assertTrue("credit expiry is never a quota reset", withoutDates.buckets.all { it.resetAt == null })
+        assertEquals(listOf("session", "weekly"), withoutDates.buckets.map { it.id })
+    }
+
+    @Test fun paintedNumbersKeepPrecedenceWhileStructuralMetadataCompletesTheRead() {
+        val painted = "5시간 사용 한도\n45% 남음\n주간 사용 한도\n66% 남음"
+        val walked = "5시간 사용 한도\n90% 남음\n오후 1:10\n초기화\n주간 사용 한도\n99% 남음\n2026. 9. 15. 오후 2:18\n초기화\n" +
+            "사용량 한도 재설정\n사용 가능\n2\n전체 재설정\n9월 21일 오전 7:41\n에 만료\n재설정 사용"
+        val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", painted, walked, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(45.0, snapshot.buckets.first { it.id == "session" }.remainingPercent!!, 0.0)
+        assertEquals(66.0, snapshot.buckets.first { it.id == "weekly" }.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-09T04:10:00Z").toEpochMilli(), snapshot.buckets.first { it.id == "session" }.resetAt)
+        assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), snapshot.buckets.first { it.id == "weekly" }.resetAt)
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(Instant.parse("2026-09-20T22:41:00Z").toEpochMilli(), snapshot.resetCredits.first().expiresAt)
+    }
+
+    @Test fun structuralMetadataOnlyCaptureCanConfirmZeroCredits() {
+        val painted = "Weekly limit\n31% remaining"
+        val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", painted, "Usage limit resets\nAvailable\n0", now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCreditsKnown)
+        assertTrue(snapshot.resetCredits.isEmpty())
+        assertEquals(31.0, snapshot.buckets.single().remainingPercent!!, 0.0)
+        val knownZero = (ConsumerUsageParser.parseBest("chatgpt", "a", "$painted\nUsage limit resets\nAvailable 0",
+            "$painted\nUsage limit resets\nAvailable 2", now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(knownZero.resetCreditsKnown)
+        assertTrue("confirmed painted zero must not be replaced", knownZero.resetCredits.isEmpty())
+    }
+
+    @Test fun resetHeaderStillLoadingDoesNotMeanZeroCredits() {
+        for (tail in listOf("Usage limit resets", "Usage limit resets\nAvailable")) {
+            val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", "Weekly limit\n31% remaining\n$tail", now, localZone) as ProviderResult.Success).snapshot
+            assertFalse(snapshot.resetCreditsKnown)
+        }
+    }
+
+    @Test fun splitKoreanMonthDayResetKeepsItsDateWithoutAnExplicitYear() {
+        val page = "주간 사용 한도\n66% 남음\n초기화\n9월 15일\n오후 2:18"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(Instant.parse("2026-09-15T05:18:00Z").toEpochMilli(), snapshot.buckets.single().resetAt)
+    }
+
+    @Test fun structuralCreditExpiryCompletesCountWithoutBecomingQuotaReset() {
+        val painted = "Weekly limit\n31% remaining\nUsage limit resets\nAvailable 2"
+        val rich = "Weekly limit\nUsage limit resets\nAvailable 2\nFull reset\nExpires Oct 4, 2026 1:58 AM\nUse reset"
+        val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", painted, rich, now, localZone) as ProviderResult.Success).snapshot
+        assertNull(snapshot.buckets.single().resetAt)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertNotNull(snapshot.resetCredits.first().expiresAt)
+        // No numbers are needed to reproduce the short reset window crossing the header.
+        val short = (ConsumerUsageParser.parse("chatgpt", "a", "Weekly limit\n31% remaining\nUsage limit resets\nFull reset\nExpires 2026-10-04T01:58:00Z", now, localZone) as ProviderResult.Success).snapshot
+        assertNull(short.buckets.single().resetAt)
+    }
+
+    @Test fun metadataMergeDoesNotReplaceKnownResetOrImportAnUnmatchedQuota() {
+        val painted = "Weekly limit\n31% remaining\nResets in 2 days"
+        val rich = "5-hour limit\n80% remaining\nResets in 3 hours\nWeekly limit\nResets in 5 days"
+        val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", painted, rich, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals(now + 2 * 86_400_000L, snapshot.buckets.single().resetAt)
+    }
+
     @Test fun grokSplitPercentAndEnglishResetUseLocalZone() {
         val text = "Weekly SuperGrok Limit\nAbout your included usage\n0\n%\nused\nResets\nSeptember 25, 2026 at 7:39 AM\nExtra Usage Credits\n$0.00"
         val result = ConsumerUsageParser.parse("grok", "account", text, now, ZoneId.of("UTC")) as ProviderResult.Success

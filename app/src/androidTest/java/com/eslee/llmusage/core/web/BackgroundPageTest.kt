@@ -1,11 +1,13 @@
 package com.eslee.llmusage.core.web
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.eslee.llmusage.core.database.UsageDatabase
 import com.eslee.llmusage.core.model.UsageBucket
+import com.eslee.llmusage.core.model.UsageSnapshot
 import com.eslee.llmusage.core.security.CredentialStore
 import com.eslee.llmusage.provider.ProviderErrorCode
 import com.eslee.llmusage.provider.ProviderRegistry
@@ -107,6 +109,140 @@ class BackgroundPageTest {
             assertEquals(45.0, snapshot.buckets.first { it.id == "session" }.remainingPercent!!, 0.0)
             assertTrue(snapshot.resetCreditsKnown)
             assertEquals(3, snapshot.resetCredits.size)
+        } finally { repository.deleteAccount(id); database.close() }
+    }
+
+    /** Percentages are painted normally; the dates and banked resets are only in open shadow roots. */
+    @Test fun paintedCodexFiguresKeepShadowRootResetDatesAndCredits(): Unit = runBlocking {
+        val sessionReset = moment(1)
+        val weeklyReset = moment(4)
+        val expiry = moment(6)
+        val snapshot = readCodex("""
+            <div>5시간 사용 한도</div><div>45% 남음</div><div id="session-reset"></div>
+            <div>주간 사용 한도</div><div>66% 남음</div><div id="weekly-reset"></div>
+            <div id="credits"></div>
+            <script>
+              document.getElementById('session-reset').attachShadow({mode:'open'}).innerHTML = '<div>${korean(sessionReset)} 초기화</div>';
+              document.getElementById('weekly-reset').attachShadow({mode:'open'}).innerHTML = '<div>${korean(weeklyReset)} 초기화</div>';
+              document.getElementById('credits').attachShadow({mode:'open'}).innerHTML =
+                '<div>사용량 한도 재설정</div><div>사용 가능 2</div><div>전체 재설정(주간 + 5시간)</div>' +
+                '<div>${expiry.monthValue}월 ${expiry.dayOfMonth}일 오후 4:39에 만료</div><div>재설정 사용</div>';
+            </script>
+        """)
+        val session = snapshot.buckets.single { it.id == "session" }
+        val weekly = snapshot.buckets.single { it.id == "weekly" }
+        assertEquals(45.0, session.remainingPercent!!, 0.0)
+        assertEquals(66.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(sessionReset.toInstant().toEpochMilli(), session.resetAt)
+        assertEquals(weeklyReset.toInstant().toEpochMilli(), weekly.resetAt)
+        assertTrue("Structural reset credits must survive repository persistence", snapshot.resetCreditsKnown)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(expiry.toInstant().toEpochMilli(), snapshot.resetCredits.first().expiresAt)
+    }
+
+    /** The October Korean dashboard exposes dates through accessibility, using a new reset heading. */
+    @Test fun theCurrentKoreanDashboardCapturesAccessibleGmtDatesAndResetCredits(): Unit = runBlocking {
+        val at = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(2)
+            .atTime(10, 25, 19).atZone(java.time.ZoneOffset.UTC)
+        val expiry = at.plusDays(14).withHour(19).withMinute(29).withSecond(0)
+        val date = "${at.year}년 ${at.monthValue}월 ${at.dayOfMonth}일 화요일 오전 10시 25분 19초 GMT"
+        val expires = "${expiry.monthValue}. ${expiry.dayOfMonth}. 오후 7:29 GMT 만료"
+        val snapshot = readCodex("""
+            <div>5시간 단위 한도</div><div aria-label="$date"></div><div>75% 남음</div>
+            <div>주간 사용 한도</div><div aria-label="$date"></div><div>96% 남음</div>
+            <div>사용 한도 초기화</div>
+            <div>초기화를 사용해 5시간 한도나 주간 한도, 또는 두 한도를 모두 복원하세요</div>
+            <div>사용 한도 재설정</div><div>사용 가능 2</div>
+            <div>전체 재설정(주간 + 5시간)</div><div>$expires</div><button>초기화 사용</button>
+            <div>전체 재설정(주간 + 5시간)</div><div>$expires</div><button>초기화 사용</button>
+            <div>크레딧 사용 내역</div>
+        """)
+        assertEquals(listOf("session", "weekly"), snapshot.buckets.map { it.id })
+        assertEquals(at.toInstant().toEpochMilli(), snapshot.buckets.single { it.id == "session" }.resetAt)
+        assertEquals(at.toInstant().toEpochMilli(), snapshot.buckets.single { it.id == "weekly" }.resetAt)
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertTrue(snapshot.resetCredits.all { it.expiresAt == expiry.toInstant().toEpochMilli() })
+    }
+
+    /** An explicit zero is complete data, so it must not consume the seven-second missing-list wait. */
+    @Test fun explicitZeroCreditsFinishesWithoutWaitingForAnAbsentList(): Unit = runBlocking {
+        var loadedAt = 0L
+        var savedAt = 0L
+        val snapshot = readCodex("""
+            <div>5시간 사용 한도</div><div>45% 남음</div><div>${korean(moment(1))} 초기화</div>
+            <div>주간 사용 한도</div><div>66% 남음</div><div>${korean(moment(4))} 초기화</div>
+            <div>사용량 한도 재설정</div><div>사용 가능 0</div>
+        """, onLoad = { loadedAt = SystemClock.elapsedRealtime() }, onSaved = { savedAt = SystemClock.elapsedRealtime() })
+        // Exclude profile teardown and account cleanup from the reader's settling budget.
+        val elapsed = savedAt - loadedAt
+        assertTrue(snapshot.resetCreditsKnown)
+        assertTrue(snapshot.resetCredits.isEmpty())
+        assertTrue("Explicit zero took ${elapsed}ms; it should settle without RESETS_WAIT", elapsed < 6_500)
+    }
+
+    /** The official page can scroll its usage panel while the document itself remains fixed. */
+    @Test fun resetsInsideAnOverflowPanelAreScrolledIntoView(): Unit = runBlocking {
+        val snapshot = readCodex("""
+            <style>html,body { margin:0; height:100%; overflow:hidden; }</style>
+            <div id="panel" style="height:400px; overflow:auto">
+              <div>5시간 사용 한도</div><div>45% 남음</div><div>${korean(moment(1))} 초기화</div>
+              <div>주간 사용 한도</div><div>66% 남음</div><div>${korean(moment(4))} 초기화</div>
+              <div style="height:6000px"></div><div id="resets" style="min-height:20px"></div>
+            </div>
+            <script>
+              new IntersectionObserver(function(entries){
+                var list = document.getElementById('resets');
+                if (!entries[0].isIntersecting || list.innerHTML) return;
+                list.innerHTML = '사용량 한도 재설정<br>사용 가능 3<br>' + [1, 2, 3].map(function(index){
+                  return '전체 재설정(주간 + 5시간)<br>재설정 사용';
+                }).join('<br>');
+              }, {root: document.getElementById('panel')}).observe(document.getElementById('resets'));
+            </script>
+        """)
+        assertEquals(45.0, snapshot.buckets.single { it.id == "session" }.remainingPercent!!, 0.0)
+        assertTrue("The nested panel's lazy reset list was never reached", snapshot.resetCreditsKnown)
+        assertEquals(3, snapshot.resetCredits.size)
+    }
+
+    private suspend fun readCodex(body: String, onLoad: () -> Unit = {}, onSaved: () -> Unit = {}): UsageSnapshot {
+        val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        val reader = WebUsageReader(context) { web, _ ->
+            onLoad()
+            web.loadDataWithBaseURL("https://chatgpt.com/codex/settings/usage", "<html><body>${body.trimIndent()}</body></html>",
+                "text/html", "UTF-8", "https://chatgpt.com/codex/settings/usage")
+        }
+        val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
+        val id = repository.addAccount("chatgpt", "Codex metadata regression")
+        try {
+            repository.refresh(id)
+            val snapshot = requireNotNull(repository.latest(id)) { "no reading saved; account ended as ${repository.account(id)?.lastErrorCode}" }
+            onSaved()
+            return snapshot
+        } finally { repository.deleteAccount(id); database.close() }
+    }
+
+    /** Phone trace: an explicit dashboard error used to wait the whole 45-second deadline. */
+    @Test fun anExplicitDashboardErrorEndsPromptlyAndKeepsTheLastReading(): Unit = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        var loadedAt = 0L
+        val reader = WebUsageReader(context) { web, _ ->
+            loadedAt = android.os.SystemClock.elapsedRealtime()
+            web.loadDataWithBaseURL("https://chatgpt.com/codex/settings/usage", """
+                <html><body>사용량<br>개요<br>사용량 분석<br>
+                사용량 설정을 불러올 수 없습니다.<br>다시 시도</body></html>
+            """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/codex/settings/usage")
+        }
+        val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
+        val id = repository.addAccount("chatgpt", "Dashboard error")
+        try {
+            repository.recordWeb(id, "5-hour usage\n75% remaining")
+            val previous = requireNotNull(repository.latest(id)).snapshotId
+            repository.refresh(id)
+            assertEquals("NETWORK", repository.account(id)?.lastErrorCode)
+            assertEquals(previous, repository.latest(id)?.snapshotId)
+            assertTrue("Explicit dashboard error waited for the full deadline",
+                android.os.SystemClock.elapsedRealtime() - loadedAt < 10_000)
         } finally { repository.deleteAccount(id); database.close() }
     }
 

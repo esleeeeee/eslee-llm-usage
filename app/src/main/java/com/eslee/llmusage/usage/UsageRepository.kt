@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 data class AccountOverview(val account: Account, val snapshot: UsageSnapshot?)
 data class SyncLog(val accountId: String, val startedAt: Long, val resultCode: String, val parserVersion: String? = null)
@@ -40,6 +41,7 @@ class UsageRepository(
     private val lifecycleLock = Mutex()
     private val retryAt = ConcurrentHashMap<String, Long>()
     private val activeRefreshes = ConcurrentHashMap<String, Deferred<Unit>>()
+    private val completedRefreshes = ConcurrentHashMap<String, AtomicLong>()
     private val sessionResetLocks = ConcurrentHashMap<String, Mutex>()
     private val resettingSessions = ConcurrentHashMap.newKeySet<String>()
     private class SessionResetCancellation : CancellationException("Account session reset")
@@ -100,17 +102,19 @@ class UsageRepository(
     suspend fun refresh(id: String) {
         if (id in resettingSessions) return
         val mutex = locks.getOrPut(id) { Mutex() }
-        // Already being collected -- by the schedule, the open app or the widget.
-        // Returning at once used to end the caller's refresh with nothing new to
-        // show; wait for that answer instead, and try again only if it failed.
-        val waited = !mutex.tryLock()
-        if (waited) mutex.lock()
+        val completed = completedRefreshes.getOrPut(id) { AtomicLong() }
+        val before = completed.get()
+        // Share any collection completed since this request arrived, including a
+        // failed answer. A later request observes the new generation and retries.
+        // Credential changes and other lock holders do not count as collections.
+        mutex.lock()
         try {
-            if (waited && account(id)?.lastErrorCode == null) return
+            if (completed.get() != before) return
             supervisorScope {
-                val collection = async(start = CoroutineStart.LAZY) {
+                val collection = async<Unit>(start = CoroutineStart.LAZY) {
                     if (id in resettingSessions) throw SessionResetCancellation()
                     collectRefresh(id)
+                    completed.incrementAndGet()
                 }
                 activeRefreshes[id] = collection
                 try {

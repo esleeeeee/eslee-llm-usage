@@ -11,8 +11,10 @@ import com.eslee.llmusage.core.model.UsageUnit
 import com.eslee.llmusage.core.security.CredentialStore
 import com.eslee.llmusage.provider.ProviderRegistry
 import com.eslee.llmusage.provider.ProviderResult
+import com.eslee.llmusage.provider.ProviderErrorCode
 import com.eslee.llmusage.settings.AppSettings
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -106,6 +108,44 @@ class RefreshConcurrencyTest {
             assertNotNull(repository.latest(id))
             // A successful answer is shared rather than loaded a second time.
             assertEquals(1, loads.get())
+        } finally {
+            release.complete(Unit)
+            first.await()
+            repository.deleteAccount(id)
+            database.close()
+        }
+    }
+
+    @Test fun concurrentFailureIsSharedButANewRequestRetries(): Unit = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<UsageApplication>()
+        val database = Room.inMemoryDatabaseBuilder(app, UsageDatabase::class.java).build()
+        val loads = AtomicInteger()
+        val loading = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repository = UsageRepository(app, database, ProviderRegistry(false), CredentialStore(app), app.graph.settings) { _, _ ->
+            loads.incrementAndGet()
+            loading.complete(Unit)
+            release.await()
+            ProviderResult.Failure(ProviderErrorCode.NETWORK_TIMEOUT, "Synthetic stalled page")
+        }
+        val id = repository.addAccount("chatgpt", "Failure coalescing")
+        val first = async { repository.refresh(id) }
+        try {
+            withTimeout(5_000) { loading.await() }
+            // Run until mutex suspension, so overlap is guaranteed without a timing sleep.
+            val second = async(start = CoroutineStart.UNDISPATCHED) { repository.refresh(id) }
+            assertFalse(second.isCompleted)
+            release.complete(Unit)
+            withTimeout(5_000) { first.await(); second.await() }
+            assertEquals(1, loads.get())
+            assertEquals("NETWORK_TIMEOUT", repository.account(id)!!.lastErrorCode)
+            assertEquals(1, repository.logs(id).size)
+            assertNull(repository.latest(id))
+
+            withTimeout(5_000) { repository.refresh(id) }
+            assertEquals(2, loads.get())
+            assertEquals(2, repository.logs(id).size)
+            assertEquals("NETWORK_TIMEOUT", repository.account(id)!!.lastErrorCode)
         } finally {
             release.complete(Unit)
             first.await()
