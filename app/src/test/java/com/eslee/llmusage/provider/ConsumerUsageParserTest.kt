@@ -13,6 +13,58 @@ class ConsumerUsageParserTest {
     private fun parsed(provider: String, name: String): ProviderResult =
         ConsumerUsageParser.parse(provider, "account", fixture(provider, name), now, localZone)
 
+    @Test fun structuralFullExpiryReplacesPaintedDateOnlyWithoutDuplicatingButtons() {
+        val header = "주간 사용 한도\n42% 남음\n사용 한도 초기화\n사용 가능\n2\n내역\n"
+        val painted = header + "전체 재설정\n10월 23일 만료\n초기화 사용\n전체 재설정\n10월 30일 만료\n초기화 사용"
+        val rich = header + "전체 재설정\n10. 23. 오전 4:29 GMT+9 만료\n10월 23일 만료\n초기화 사용 전체 재설정\n초기화 사용\n" +
+            "전체 재설정\n10. 30. 오전 1:39 GMT+9 만료\n10월 30일 만료\n초기화 사용 전체 재설정\n초기화 사용"
+        val expected = listOf("2026-10-22T19:29:00Z", "2026-10-29T16:39:00Z").map { Instant.parse(it).toEpochMilli() }
+        for ((first, second) in listOf(painted to rich, rich to painted)) {
+            val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", first, second, now, localZone) as ProviderResult.Success).snapshot
+            assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+            assertEquals(42.0, snapshot.buckets.single().remainingPercent!!, 0.0)
+            assertEquals(expected, snapshot.resetCredits.map { it.expiresAt })
+        }
+    }
+
+    @Test fun liveWeeklyCountdownDoesNotCreateAFiveHourQuota() {
+        val painted = "주간 사용 한도\n초기화까지 5일 5시간 남았습니다\n42% 남음\n크레딧\n사용 한도 초기화"
+        val rich = "주간 사용 한도\n2026년 10월 12일 월요일 오전 12시 49분 49초 GMT+9\n초기화까지 5일 5시간 남았습니다\n42% 남음\n남은 사용량\n사용 한도 초기화"
+        val snapshot = (ConsumerUsageParser.parseBest("chatgpt", "a", painted, rich, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals("weekly", snapshot.primaryBucketId)
+        assertEquals(42.0, snapshot.buckets.single().remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-10-11T15:49:49Z").toEpochMilli(), snapshot.buckets.single().resetAt)
+    }
+
+    @Test fun creditAccessibilityTimestampAndPaintedExpiryAreOneItemPerButton() {
+        val page = """
+            주간 사용 한도
+            42% 남음
+            사용 한도 초기화
+            초기화를 사용해 5시간 한도나 주간 한도, 또는 두 한도를 모두 복원하세요
+            사용 가능
+            2
+            내역
+            전체 재설정
+            2026년 10월 23일 금요일 오전 4시 29분 0초 GMT+9 만료
+            10월 23일 만료
+            초기화 사용
+            전체 재설정
+            2026년 10월 30일 금요일 오전 1시 39분 0초 GMT+9 만료
+            10월 30일 만료
+            초기화 사용
+        """.trimIndent()
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(Instant.parse("2026-10-22T19:29:00Z").toEpochMilli(), snapshot.resetCredits[0].expiresAt)
+        assertEquals(Instant.parse("2026-10-29T16:39:00Z").toEpochMilli(), snapshot.resetCredits[1].expiresAt)
+        val zero = (ConsumerUsageParser.parse("chatgpt", "a", page.replace("사용 가능\n2", "사용 가능\n0"), now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(zero.resetCreditsKnown)
+        assertTrue("explicit zero wins over stale duplicate items", zero.resetCredits.isEmpty())
+    }
+
     @Test fun liveKoreanCodexGmtPlusNineDatesKeepTheSameUtcInstants() {
         val capturedAt = Instant.parse("2026-10-06T08:00:00Z").toEpochMilli()
         val page = """

@@ -13,7 +13,7 @@ import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.5"
+    const val VERSION = "1.2.6"
     /** A quota label opens a limit of its own; any other label only ends the section before it. */
     private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
     private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
@@ -29,7 +29,7 @@ object ConsumerUsageParser {
             label("weekly", "Weekly usage", "weekly(?: usage| limits?)?|all models|주간(?: 사용량| 한도)?|모든 모델"),
             label("sonnet", "Sonnet", "sonnet only|sonnet만")),
         "chatgpt" to listOf(
-            label("session", "5-hour usage", "5[- ]hour(?:\\s+(?:usage|limit))?|five[- ]hour|5h(?:\\s+(?:usage|limit))?|세션 사용량|5시간(?: 사용)?(?: 한도)?"),
+            label("session", "5-hour usage", "^(?:5[- ]hour(?:\\s+(?:usage(?: limit)?|limit))?|five[- ]hour|5h(?:\\s+(?:usage|limit))?|세션 사용량|5시간(?: (?:사용|단위))?(?: 한도)?)$"),
             label("weekly", "Weekly usage", "weekly usage(?: limit)?|weekly limit|주간 사용량(?: 한도)?|주간 한도|주간 사용 한도"),
             label("reserve", "Reserve usage", "gpt-reserve|reserve(?: usage| limit)?|spark"),
             label("session", "Codex usage", "^codex usage$|^코덱스 사용량$"),
@@ -239,13 +239,22 @@ object ConsumerUsageParser {
         if (chosen is ProviderResult.Success && other is ProviderResult.Success) {
             val base = chosen.snapshot
             val supplement = other.snapshot
+            val baseText = if (chosen === walked) richText else visibleText
+            val supplementText = if (chosen === walked) visibleText else richText
+            fun expiryEvidence(snapshot: UsageSnapshot, text: String): Int {
+                val timed = resetSection(text).orEmpty().filter { expiryClock.containsMatchIn(it) }
+                    .mapNotNull { parseExpiry(it, fetchedAt, localZone) }.toSet()
+                return snapshot.resetCredits.sumOf { credit ->
+                    if (credit.expiresAt == null) 0 else if (credit.expiresAt in timed) 2 else 1
+                }
+            }
             // A confirmed zero is evidence, not missing data. For nonempty lists,
             // take the more complete whole list, avoiding guessed item identities.
             val useOtherCredits = !base.resetCreditsKnown ||
                 (base.resetCredits.isNotEmpty() && supplement.resetCreditsKnown &&
                     (supplement.resetCredits.size > base.resetCredits.size ||
                         (supplement.resetCredits.size == base.resetCredits.size &&
-                            supplement.resetCredits.count { it.expiresAt != null } > base.resetCredits.count { it.expiresAt != null })))
+                            expiryEvidence(supplement, supplementText) > expiryEvidence(base, baseText))))
             return ProviderResult.Success(base.copy(
                 buckets = base.buckets.map { bucket ->
                     bucket.copy(resetAt = bucket.resetAt ?: supplement.buckets.firstOrNull { it.id == bucket.id }?.resetAt)
@@ -323,6 +332,7 @@ object ConsumerUsageParser {
     private val resetsHeader = Regex("사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
     private val resetsStop = Regex("크레딧 사용 내역|추가 사용 크레딧|Extra Usage Credits|자동 충전|Auto[- ]?recharge|남은 크레딧", RegexOption.IGNORE_CASE)
     private val expiryMarker = Regex("만료|expir", RegexOption.IGNORE_CASE)
+    private val expiryClock = Regex("\\d{1,2}:\\d{2}|\\d{1,2}시\\s*\\d{1,2}분")
     private val creditItem = Regex("재설정|초기화|reset", RegexOption.IGNORE_CASE)
     private val creditNoise = Regex("(?:재설정|초기화) 사용|use (?:a )?reset|(?:재설정|초기화)를 사용해|재설정을 사용해|사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
     private val creditAvailable = Regex("재설정 가능|reset available", RegexOption.IGNORE_CASE)
@@ -350,31 +360,60 @@ object ConsumerUsageParser {
         val credits = mutableListOf<ResetCredit>()
         var label: String? = null
         var lastLabel: String? = null
+        var pending: ResetCredit? = null
+        var precision = 0
+        fun finishItem() {
+            pending?.let { credits += it }
+            pending = null
+            precision = 0
+            label = null
+        }
         section.forEachIndexed { index, line ->
             when {
-                expiryMarker.containsMatchIn(line) -> {
-                    // The node walk can put the moment and the word "만료" on neighbouring lines.
-                    val expiry = parseExpiry(line, now, localZone)
-                        ?: section.getOrNull(index - 1)?.takeIf { !creditItem.containsMatchIn(it) }?.let { parseExpiry(it, now, localZone) }
-                        ?: section.getOrNull(index + 1)?.takeIf { !expiryMarker.containsMatchIn(it) }?.let { parseExpiry(it, now, localZone) }
-                    credits += ResetCredit(label, expiry)
-                    label = null
+                creditAction.matches(line) -> {
+                    // The same button can contribute its aria label then its text.
+                    if (pending == null && label == null && index > 0 && creditAction.matches(section[index - 1])) {
+                        return@forEachIndexed
+                    }
+                    if (pending == null) pending = ResetCredit(label ?: lastLabel)
+                    finishItem()
                 }
-                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> { label = line; lastLabel = line }
+                expiryMarker.containsMatchIn(line) -> {
+                    // One credit exposes both its full accessibility timestamp and
+                    // its date-only caption. Prefer the clock within this item.
+                    val candidates = listOfNotNull(line, section.getOrNull(index - 1), section.getOrNull(index + 1))
+                        .filter { !creditItem.containsMatchIn(it) }
+                        .mapNotNull { text -> parseExpiry(text, now, localZone)?.let { time ->
+                            time to if (expiryClock.containsMatchIn(text)) 2 else 1
+                        } }
+                    val best = candidates.maxByOrNull { it.second }
+                    if (pending == null || (best?.second ?: 0) > precision) {
+                        pending = ResetCredit(label, best?.first)
+                        precision = best?.second ?: 0
+                    }
+                }
+                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) -> {
+                    finishItem()
+                    label = line
+                    lastLabel = line
+                }
             }
         }
+        finishItem()
         // A page may state a count beside an abbreviated list, or list a reset without
         // printing its expiry; the count, or one button per reset, is what the user has.
         val stated = section.firstNotNullOfOrNull { line -> sectionCount.find(line)?.groupValues?.drop(1)?.firstNotNullOfOrNull { it.toIntOrNull() } }
             // The live page draws the word and its number as separate nodes: "사용 가능 | 3".
             ?: section.indices.firstNotNullOfOrNull { i -> section[i].takeIf { availableLabel.matches(it) }?.let { section.getOrNull(i + 1)?.toIntOrNull() } }
         val buttons = section.count { creditAction.matches(it) }
-        val count = maxOf(explicit ?: 0, stated ?: 0, buttons)
+        val authoritativeCount = stated ?: explicit
+        val count = authoritativeCount ?: maxOf(credits.size, buttons)
         while (credits.size < count) credits += ResetCredit(lastLabel)
-        if (credits.isEmpty() && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(label)
+        if (credits.isEmpty() && authoritativeCount == null && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(lastLabel)
         // A mounted header with a still-loading list does not establish zero.
         if (credits.isEmpty() && explicit == null && stated == null) return null
-        return credits.sortedWith(compareBy(nullsLast()) { it.expiresAt })
+        return (if (authoritativeCount != null) credits.take(authoritativeCount) else credits)
+            .sortedWith(compareBy(nullsLast()) { it.expiresAt })
     }
 
     private fun parseExpiry(line: String, now: Long, localZone: ZoneId): Long? {
@@ -382,7 +421,7 @@ object ConsumerUsageParser {
         // The Korean Codex locale prints credit dates as "10. 22. 오후 7:29 GMT".
         val canonical = Regex("(?<![\\d.])(\\d{1,2})\\.\\s*(\\d{1,2})\\.\\s*(?=오전|오후)")
             .replace(line) { "${it.groupValues[1]}월 ${it.groupValues[2]}일 " }
-        return monthDayTime(canonical, now, zone) ?: absoluteTime(canonical, now, zone) ?: relativeTime(canonical, now)
+        return koreanGmtTime(canonical) ?: monthDayTime(canonical, now, zone) ?: absoluteTime(canonical, now, zone) ?: relativeTime(canonical, now)
     }
 
     /** "9월 21일 오전 7:41" or "Oct 4, 1:58 AM": without a year, the year is the one that keeps the moment ahead. */

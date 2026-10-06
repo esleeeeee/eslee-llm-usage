@@ -165,6 +165,35 @@ class BackgroundPageTest {
         assertTrue(snapshot.resetCredits.all { it.expiresAt == expiry.toInstant().toEpochMilli() })
     }
 
+    /** Real Pro trace: a 5-day/5-hour countdown is not a 5-hour quota, and accessibility repeats each expiry. */
+    @Test fun aWeeklyOnlyKoreanPageDoesNotInventAQuotaOrDuplicateCredits(): Unit = runBlocking {
+        val at = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(5)
+            .atTime(0, 49, 49).atZone(java.time.ZoneOffset.UTC)
+        val expiry = at.plusDays(14).withHour(19).withMinute(29).withSecond(0)
+        val later = expiry.plusDays(7)
+        val date = "${at.year}년 ${at.monthValue}월 ${at.dayOfMonth}일 월요일 오전 12시 49분 49초 GMT"
+        fun caption(day: java.time.ZonedDateTime) = "${day.monthValue}. ${day.dayOfMonth}. 오후 7:29 GMT 만료"
+        fun item(day: java.time.ZonedDateTime) = """
+            <div>전체 재설정</div>
+            <div title="${caption(day)}">${day.monthValue}월 ${day.dayOfMonth}일 만료</div>
+            <button aria-label="초기화 사용 전체 재설정">초기화 사용</button>
+        """
+        val snapshot = readCodex("""
+            <div>주간 사용 한도</div><div title="$date">초기화까지 5일 5시간 남았습니다</div><div>42% 남음</div>
+            <div>크레딧</div><div>0크레딧 남음</div>
+            <div>사용 한도 초기화</div>
+            <div>초기화를 사용해 5시간 한도나 주간 한도, 또는 두 한도를 모두 복원하세요</div>
+            <div>사용 가능</div><div>2</div><div>내역</div>
+            ${item(expiry)}${item(later)}<div>크레딧 사용 내역</div>
+        """)
+        assertEquals(listOf("weekly"), snapshot.buckets.map { it.id })
+        assertEquals("weekly", snapshot.primaryBucketId)
+        assertEquals(42.0, snapshot.buckets.single().remainingPercent!!, 0.0)
+        assertEquals(at.toInstant().toEpochMilli(), snapshot.buckets.single().resetAt)
+        assertEquals(2, snapshot.resetCredits.size)
+        assertEquals(listOf(expiry, later).map { it.toInstant().toEpochMilli() }, snapshot.resetCredits.map { it.expiresAt })
+    }
+
     /** An explicit zero is complete data, so it must not consume the seven-second missing-list wait. */
     @Test fun explicitZeroCreditsFinishesWithoutWaitingForAnAbsentList(): Unit = runBlocking {
         var loadedAt = 0L
