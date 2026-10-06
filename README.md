@@ -42,15 +42,15 @@
 
 | 구분·서비스 | 수집 범위 | 갱신 | 실서비스 검증 근거 |
 | --- | --- | --- | --- |
-| Consumer · Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | [v0.2.4 실계정 에뮬레이터·위젯 기록](docs/QA_V024.md). 이번 수정의 실계정 재검증은 미실시 |
+| Consumer · Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
 | Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집 | fixture 검사만 수행, 실로그인 미검증 |
-| Consumer · Grok | Settings Usage 주간 %, reset, Extra Usage Credits. 제품별 비율은 한도에서 제외 | 자동 WebView 수집, `?_s=usage` | [v0.2.4 실계정 에뮬레이터·위젯 기록](docs/QA_V024.md). 이번 수정의 실계정 재검증은 미실시 |
+| Consumer · Grok | Settings Usage 주간 %, reset, Extra Usage Credits. 제품별 비율은 한도에서 제외 | 자동 WebView 수집, `?_s=usage` | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
 | API · OpenAI | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
 | API · Anthropic | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
 | API · xAI | UTC 오늘 팀 API 비용 | Management key와 Team ID, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
 | Consumer · Gemini / Perplexity | 검증된 연결 없음 | 없음 | 미지원 사유 표시 |
 
-이번 자동 회귀 검증은 v0.2.10 소스에 적용한 감사 수정 기준이며, 테스트 전용 AVD의 Demo·synthetic HTML을 사용합니다. 실제 휴대폰·One UI 런처·모든 언어/요금제에서의 동작을 보증하지 않습니다. 과거 실계정 확인과 현재 자동 검사 결과는 별도로 기록합니다.
+v0.2.12는 JVM 122개와 Android 38개 회귀 테스트를 통과했으며, 배포 APK로 한국어·한국 시간대의 실제 Plus/Pro/Grok 계정과 Pixel Launcher 새로고침을 검증했습니다. 실제 휴대폰·One UI 런처·모든 언어/요금제는 별도 확인이 필요합니다. 상세 결과는 [검증 기록](docs/QA_V0212.md)에 있습니다.
 
 API 사용량은 ChatGPT Plus, Claude Pro/Max, SuperGrok 구독 한도와 다른 상품의 데이터입니다. API에서 구독 잔여 퍼센트를 만들지 않습니다. 전체 한도를 모르는 데이터는 실제 토큰·요청·비용만 표시합니다.
 

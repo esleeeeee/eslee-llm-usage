@@ -1,5 +1,11 @@
 # Build report
 
+## v0.2.12 (2026-10-06)
+
+Restores Korean Codex reset timestamps and banked reset counts/expiry times; prevents duplicate credits and countdowns being parsed as quota headings. Removes unnecessary metadata waits and shares overlapping failed refreshes. Local JVM 122 tests and Android 38 tests pass; lint 0 errors / 60 warnings. [CI 37447748455](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/37447748455) also passed all checks and published the signed release.
+
+The published APK was verified with existing Plus, Pro and Grok sessions in Korean/Asia-Seoul, including actual launcher widget refresh without opening the app. APK SHA-256: `9a566dc2d7e1a5dd1e399ea391fb4bd223a2b6d7afedc0364fac5977987fd103`. Detailed evidence and limits: [QA_V0212.md](docs/QA_V0212.md). Older reports below are historical.
+
 ## v0.2.4 (2026-09-22)
 
 Fixes fresh-profile login retries, account-only cancellation during session reset, Grok split DOM percentages, English reset timestamps, and widget refresh hit targets. Verified with real Codex/Grok sessions and actual Pixel Launcher taps on the local API35 emulator. Existing signed installation was updated in place.
