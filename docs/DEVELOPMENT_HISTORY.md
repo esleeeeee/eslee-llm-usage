@@ -1331,3 +1331,5 @@ CI(aa9da61): 계기 테스트 **40개 모두 통과**(`UpdateDownloadTest` 포�
 ### 미검증
 
 - 실기기에서 Claude의 Google 로그인이 이제 Google 화면까지 가는지, 그 뒤 Google이 허용하는지·막는지. 막으면 안내가 뜨고, 허용되면 로그인이 끝나야 한다. 어느 쪽이든 진단에 `nav(popup)`, `start(popup) · https://accounts.google.com/...`이 찍힌다.
+
+CI(549c3c7): 계기 테스트 **44개 모두 통과**(`PopupSignInTest` 4건 포함: 에뮬레이터 WebView 124에서도 창을 건드리면 about:blank 시작 알림이 실제로 왔고, 그 뒤 원래 페이지가 도착함), v0.2.15 프리릴리스 게시.
