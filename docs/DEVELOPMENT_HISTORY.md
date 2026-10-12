@@ -1257,3 +1257,5 @@ Claude의 공식 이메일 로그인(support.claude.com, "Logging in to your Cla
 ### 미검증
 
 - 실기기에서 Claude 이메일 링크 → 휴대폰 브라우저의 코드 → 앱 입력으로 로그인이 끝나는지, 그 뒤 사용량 수집이 되는지(Claude 실로그인은 아직 검증된 적 없음).
+
+CI(9bd3352): 계기 테스트 **39개 모두 통과**(`GoogleSignInTest` 포함), v0.2.13 프리릴리스 게시.
