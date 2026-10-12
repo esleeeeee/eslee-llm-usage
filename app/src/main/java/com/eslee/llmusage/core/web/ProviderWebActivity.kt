@@ -48,6 +48,8 @@ class ProviderWebActivity : ComponentActivity() {
     private var resumeMonitoring: (() -> Unit)? = null
     private var updateAuthAction: () -> Unit = {}
     private var completionToken = 0
+    /** The Google sign-in explanation is shown once per visit; trying anyway is the user's call. */
+    private var googleExplained = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdgeContent()
@@ -147,7 +149,10 @@ class ProviderWebActivity : ComponentActivity() {
                     autoReadToken++
                     WebTrace.url(if (view === web) "start" else "start(popup)", url)
                     host.text = Uri.parse(url).host.orEmpty()
-                    if (WebNavigationPolicy.isGoogleSignIn(url)) host.setText(R.string.web_google_signin_warning)
+                    if (WebNavigationPolicy.isGoogleSignIn(url)) {
+                        host.setText(R.string.web_google_signin_warning)
+                        explainGoogleSignIn(web, provider)
+                    }
                     if (WebNavigationPolicy.inspect(url, provider.allowedHosts) != NavigationDecision.ALLOW) view.stopLoading()
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -299,6 +304,28 @@ class ProviderWebActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Google refuses sign-in inside an app's browser, and the app does not disguise
+     * itself to get past that. On Claude the attempt ended on a blank window that kept
+     * loading, with nothing saying why (reported 2026-10-12). So the moment a Google
+     * sign-in starts, say it cannot finish here and offer the way that does: the same
+     * address through the provider's email sign-in.
+     */
+    private fun explainGoogleSignIn(web: WebView, provider: ProviderDefinition) {
+        if (googleExplained || isFinishing) return
+        googleExplained = true
+        WebTrace.record("google-signin", provider.id)
+        android.app.AlertDialog.Builder(this)
+            .setTitle(R.string.web_google_dialog_title)
+            .setMessage(if (provider.id == "claude") R.string.web_google_dialog_claude else R.string.web_google_dialog_body)
+            .setPositiveButton(R.string.web_google_dialog_email) { _, _ ->
+                popups.toList().forEach { web.webChromeClient?.onCloseWindow(it) }
+                if (WebNavigationPolicy.isGoogleSignIn(web.url.orEmpty())) provider.loginUrl?.let(web::loadUrl)
+            }
+            .setNegativeButton(R.string.web_google_dialog_try, null)
+            .show()
     }
 
     private fun blockIfDisallowed(url: String, hosts: Set<String>, mainFrame: Boolean): Boolean {

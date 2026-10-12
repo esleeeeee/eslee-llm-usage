@@ -43,6 +43,11 @@
     <string name="web_login_confirmed">Signed in. Opening the usage page to read usage.</string>
     <string name="web_google_signin_warning">Google restricts sign-in inside embedded browsers. Accounts saved on your phone are not available here, and the number-matching prompt may never arrive. Use email sign-in on this page instead.</string>
     <string name="web_google_webview_block">A sign-in error was detected. Google restricts embedded browser sign-in. Try another sign-in method offered by the service.</string>
+    <string name="web_google_dialog_title">Google sign-in cannot finish here</string>
+    <string name="web_google_dialog_body">Google blocks sign-in inside an app\'s browser, so this ends on a blank page or an error. Sign in with the same address by email on the service\'s sign-in page instead.</string>
+    <string name="web_google_dialog_claude">Google blocks sign-in inside an app\'s browser, so this ends on a blank page. Use the same Gmail address by email instead:\n\n1. On the Claude sign-in page, enter the address and tap \"Continue with email\".\n2. In your mail app, open the \"Secure link to log in to Claude.ai\" email and open its link in your phone\'s browser (Chrome or another).\n3. That browser shows a verification code. Come back here and enter it.\n\nKeep this screen open until you enter the code.</string>
+    <string name="web_google_dialog_email">Sign in by email</string>
+    <string name="web_google_dialog_try">Try Google anyway</string>
     <string name="web_device_verification">The service is verifying your device. If it stays here, check your sign-in. Previously saved usage is retained.</string>
     <string name="web_usage_check">Read usage</string>
     <string name="web_usage_page">Usage page</string>
