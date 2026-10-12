@@ -75,9 +75,18 @@ class UpdateChecker(
 
         fun parse(body: String): List<Release> = runCatching { json.decodeFromString<List<Release>>(body) }.getOrDefault(emptyList())
 
-        /** The feed names each release by its page; it carries no assets, so the page is what gets opened. */
+        /**
+         * The feed names each release by its page and lists no assets. Every release this
+         * project publishes carries its APK under one name (the release workflow's
+         * `eslee-llm-usage-<tag>.apk`), so that is the download; the page stays the fallback.
+         */
         fun parseFeed(body: String): List<Release> =
-            feedEntry.findAll(body).map { Release(tag = it.groupValues[2], page = it.groupValues[1]) }.distinctBy { it.tag }.toList()
+            feedEntry.findAll(body).map { match ->
+                val page = match.groupValues[1]
+                val tag = match.groupValues[2]
+                val apk = "eslee-llm-usage-$tag.apk"
+                Release(tag = tag, page = page, assets = listOf(Asset(apk, page.replace("/releases/tag/", "/releases/download/") + "/$apk")))
+            }.distinctBy { it.tag }.toList()
 
         fun available(releases: List<Release>, installed: String): Available? {
             val newest = releases.filter { !it.draft }.maxWithOrNull { a, b -> compare(a.tag, b.tag) } ?: return null

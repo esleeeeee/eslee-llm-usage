@@ -90,7 +90,7 @@ class UpdateCheckerTest {
             val found = (newer as UpdateChecker.Outcome.Newer).available
             assertEquals("0.2.10", found.version)
             assertEquals("https://github.com/esleeeeee/eslee-llm-usage/releases/tag/v0.2.10", found.page)
-            assertNull("the feed has no assets; the release page is opened instead", found.apk)
+            assertEquals("the APK the release workflow publishes under every tag", "https://github.com/esleeeeee/eslee-llm-usage/releases/download/v0.2.10/eslee-llm-usage-v0.2.10.apk", found.apk)
         }
     }
 }

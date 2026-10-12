@@ -1,7 +1,6 @@
 package com.eslee.llmusage.ui
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -25,6 +24,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -32,6 +32,7 @@ import com.eslee.llmusage.BuildConfig
 import com.eslee.llmusage.R
 import com.eslee.llmusage.app.AppGraph
 import com.eslee.llmusage.app.UpdateChecker
+import com.eslee.llmusage.app.UpdateDownload
 import com.eslee.llmusage.app.UsageApplication
 import com.eslee.llmusage.core.model.Account
 import com.eslee.llmusage.core.model.AuthMode
@@ -171,6 +172,24 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
             is UpdateChecker.Outcome.Failed -> snackbar.showSnackbar(checkFailed)
         }
     }
+    fun openInBrowser(url: String) { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } }
+    /** The app fetches the APK itself into Downloads; the browser is left only for what it cannot fetch. */
+    fun downloadUpdate(found: UpdateChecker.Available) {
+        val apk = found.apk
+        val id = if (apk != null && UpdateDownload.supported) runCatching {
+            UpdateDownload.start(context, apk, "eslee-llm-usage-v${found.version}.apk", resources.getString(R.string.update_download_title, found.version))
+        }.getOrNull() else null
+        if (id == null) return openInBrowser(apk ?: found.page)
+        scope.launch { snackbar.showSnackbar(resources.getString(R.string.update_download_started, found.version)) }
+        scope.launch {
+            if (UpdateDownload.await(context, id) == UpdateDownload.State.DONE) {
+                snackbar.showSnackbar(resources.getString(R.string.update_download_done), duration = SnackbarDuration.Long)
+            } else if (snackbar.showSnackbar(resources.getString(R.string.update_download_failed), resources.getString(R.string.update_open_page),
+                    duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
+                openInBrowser(found.page)
+            }
+        }
+    }
     UsageTheme(when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> isSystemInDarkTheme() }) {
         update?.let { found ->
             AlertDialog(
@@ -179,7 +198,7 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
                 text = { Text(stringResource(R.string.update_available_body, BuildConfig.VERSION_NAME)) },
                 confirmButton = {
                     TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(found.apk ?: found.page))) }
+                        downloadUpdate(found)
                         update = null
                     }) { Text(stringResource(R.string.update_download)) }
                 },
