@@ -58,6 +58,9 @@ class PageAuthStateTest {
         assertEquals(PageAuthState.SIGNED_IN, PageAuthStateDetector.detect("https://chatgpt.com/codex/settings/usage", "5-hour limit", false))
         assertEquals(PageAuthState.SIGNED_IN, PageAuthStateDetector.detect("https://grok.com/?_s=usage", "Weekly usage", false))
         assertEquals(AuthPageKind.GOOGLE_WEBVIEW_BLOCK, UsageSurface.classify("https://accounts.google.com/signin", "This browser or app may not be secure"))
+        // The phone's browser is in Korean, and so is Google's refusal.
+        assertEquals(AuthPageKind.GOOGLE_WEBVIEW_BLOCK, UsageSurface.classify("https://accounts.google.com/signin", "로그인할 수 없음\n이 브라우저 또는 앱이 안전하지 않을 수 있습니다."))
+        assertEquals(AuthPageKind.GOOGLE_WEBVIEW_BLOCK, UsageSurface.classify("https://accounts.google.com/o/oauth2/v2/auth", "액세스 차단됨\n오류 403: disallowed_useragent"))
         assertEquals(AuthPageKind.DEVICE_VERIFICATION, UsageSurface.classify("https://grok.com/", "Completing sign-in. Verifying your device to keep your account secure."))
         assertTrue(WebNavigationPolicy.allows(chatgpt.loginUrl!!, chatgpt.allowedHosts))
         assertTrue(WebNavigationPolicy.allows(grok.loginUrl!!, grok.allowedHosts))

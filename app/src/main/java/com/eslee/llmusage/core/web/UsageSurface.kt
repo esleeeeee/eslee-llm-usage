@@ -49,7 +49,7 @@ object UsageSurface {
 
     fun classify(url: String, visibleText: String): AuthPageKind {
         val text = visibleText.lowercase()
-        if (Regex("disallowed_useragent|this browser or app may not be secure|couldn't sign you in|could not sign you in")
+        if (Regex("disallowed_useragent|this browser or app may not be secure|couldn't sign you in|could not sign you in|브라우저 또는 앱이 안전하지 않을 수")
                 .containsMatchIn(text)
         ) return AuthPageKind.GOOGLE_WEBVIEW_BLOCK
         if (Regex("verifying your device|completing sign-in|keep your account secure")

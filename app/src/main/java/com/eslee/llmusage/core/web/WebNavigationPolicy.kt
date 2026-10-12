@@ -25,6 +25,15 @@ object WebNavigationPolicy {
     }.getOrDefault(false)
 
     /**
+     * A window's empty starting document. It loads nothing, so there is nothing to
+     * stop. WebView also reports one for a sign-in window whose opener touches it while
+     * the window's first real page is still on its way; stopping then cancels that page.
+     */
+    fun isBlankDocument(url: String): Boolean = runCatching {
+        URI(url).let { it.scheme.equals("about", true) && it.schemeSpecificPart.equals("blank", true) }
+    }.getOrDefault(false)
+
+    /**
      * Device verification and captcha challenges load in subframes whose hosts no
      * per-provider allowlist can enumerate. Scripts, XHR and images from those same
      * hosts are already fetched without consulting this policy, so refusing only

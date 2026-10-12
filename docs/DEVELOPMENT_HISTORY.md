@@ -1283,3 +1283,51 @@ CI(9bd3352): 계기 테스트 **39개 모두 통과**(`GoogleSignInTest` 포함)
 - 실기기(삼성)에서 완료 알림 → 설치 화면. 처음에는 "알 수 없는 앱 설치" 허용을 묻는 것이 정상이다. 이 기능은 0.2.14부터 들어 있으므로 실제로 써 볼 수 있는 것은 그다음 버전 알림부터다.
 
 CI(aa9da61): 계기 테스트 **40개 모두 통과**(`UpdateDownloadTest` 포함), v0.2.14 프리릴리스 게시.
+
+---
+
+## v0.2.15 — Claude "Google로 계속하기" 흰 창: 앱이 Google 페이지를 취소하고 있었다 (2026-10-12)
+
+### 보고
+
+> 여전히 구글 로그인 누르면 흰 창에서 멈춰 있는데? (v0.2.14 진단 첨부)
+
+```
+15:17:05.230 popup-open · gesture=true dialog=true
+15:17:05.251 start(popup) · about://none/
+15:17:05.253 progress(popup) · 100%   (×3)
+15:17:52.000 popup-close              (47초 뒤 사용자가 닫음, 같은 패턴 3회)
+```
+
+창은 열렸지만 `about:blank` 외에는 아무 주소로도 가지 않았다. v0.2.13의 안내(Google 주소가 열릴 때)가 한 번도 뜨지 않은 이유다. v0.2.13의 전제("Google이 막아서 흰 화면")는 틀렸다.
+
+### 원인 (조사 워크플로: 4개 관점 조사 → 설계 → 3개 반박 검증)
+
+페이지가 방금 연 창의 초기 문서를 건드리면(Google 로그인 스크립트는 창을 연 직후 `closed`/`focus` 등에 접근한다), WebView는 그 창의 첫 실제 페이지가 아직 오는 중인데도 빈 시작 문서 `about:blank`에 대해 `onPageStarted`를 한 번 만들어 보낸다(Chromium `AwWebContentsDelegateAdapter.navigationStateChanged` → 합성 page loading). 앱의 공용 `onPageStarted`는 https가 아닌 주소를 모두 "허용 안 됨"으로 보고 `view.stopLoading()`을 불렀고, 이것이 진행 중이던 Google 이동을 `ERR_ABORTED`로 취소했다. 취소는 `onReceivedError`로 오지 않고, 커밋도 없어 `onPageStarted`도 없으니 추적에는 about:blank만 남았다. 세 번 모두 같은 결정적 경로.
+
+부수 결함: 앱이 첫 페이지를 거부한 창도 같은 흰 덮개로 남았다(돌아갈 페이지가 없음).
+
+### 변경
+
+- `onPageStarted`/`onPageFinished`: `about:blank`(`WebNavigationPolicy.isBlankDocument`)는 멈추지도 판정하지도 않는다. 추적에는 `start(popup) · about://none/ blank, left loading`.
+- 창이 허용된 페이지를 커밋하면 "도착"으로 기록. 허용 안 되는 페이지를 커밋하면 `stopped(popup)`을 남기고 멈춘다.
+- 첫 페이지가 거부된 창(요청 시점 `nav-blocked` 또는 커밋 시점 `stopped`)은 흰 덮개로 두지 않고 닫는다(`popup-close · blank`). 이미 페이지를 보여 준 창은 그대로 둔다.
+- 허용된 창 이동은 `nav(popup)`으로 추적에 남긴다(이번 원인이 보이지 않던 사각지대).
+- Google 안내 대화상자는 **Google이 실제로 거부 화면을 보였을 때만** 뜬다(창 안·본 창 모두, `GOOGLE_WEBVIEW_BLOCK`). Google 주소가 열리기만 해도 "끝낼 수 없다"고 단정하던 v0.2.13 동작은 뺐다. 근거: v0.1.8에서 Grok의 Google 로그인이 이 WebView 안에서 끝까지 통과한 적이 있고, 이번 흰 창은 Google이 아니라 앱 탓이었다. 버튼은 "이메일로 로그인" / "닫기".
+- Google 거부 문구 감지에 한국어("브라우저 또는 앱이 안전하지 않을 수") 추가. 안내는 Google 로그인 주소에서만 띄운다(서비스 화면의 대화 내용에 같은 문구가 있어도 무시).
+- Google은 화면을 새 페이지 로드 없이(`history.pushState`) 바꾸기도 하므로, 로그인 창이 Google 주소 안에서 화면을 바꾸면 1초 뒤 다시 읽는다(`doUpdateVisitedHistory`, 추적 `screen(popup)`).
+
+변경 후 적대적 리뷰(4개 관점, 지적마다 반박 검증): 6건 중 4건 확인·반영 — 테스트 추적 표식이 비밀값 지우기에 걸려 다른 테스트·이전 실행의 줄까지 읽던 문제(짧은 표식, 표식이 없으면 실패), pushState로 바뀐 거부 화면, 서비스 화면의 같은 문구로 뜨는 오탐, 문서의 단정. 2건은 반박됨(v0.2.13에서 넣은 시작 시 안내를 뺀 것은 의도된 변경이고, 그 안내는 Claude 경로에서 한 번도 뜬 적이 없음).
+
+### 검증
+
+로컬 `testDebugUnitTest` **123 tests / failures 0 / errors 0**(빈 문서 판정, 한국어 거부 문구), `lintDebug` errors 0. 계기 테스트 `PopupSignInTest`(네트워크 없이 테스트가 페이지를 직접 응답):
+- 창의 페이지 응답을 붙잡아 둔 채, 창이 넘겨진 뒤 opener가 창을 건드리게 해서 about:blank 시작 알림을 실제로 일으키고(추적으로 확인), 응답을 풀었을 때 그 페이지가 창에 도착해야 한다. 이전 코드에서는 취소되어 실패하는 테스트다.
+- 창 안의 Google 거부 화면 → 안내 → "이메일로 로그인" → 창이 닫히고 Claude 로그인 화면이 남는다.
+- 창 안의 Google이 새 페이지 없이 거부 화면으로 바뀌어도 안내가 뜬다.
+- 첫 페이지가 거부된 창은 닫힌다.
+`GoogleSignInTest`는 본 창의 Google 거부 화면(한국어) 기준으로 바꿨다. CI 에뮬레이터에서 실행.
+
+### 미검증
+
+- 실기기에서 Claude의 Google 로그인이 이제 Google 화면까지 가는지, 그 뒤 Google이 허용하는지·막는지. 막으면 안내가 뜨고, 허용되면 로그인이 끝나야 한다. 어느 쪽이든 진단에 `nav(popup)`, `start(popup) · https://accounts.google.com/...`이 찍힌다.

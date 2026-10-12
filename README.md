@@ -25,7 +25,7 @@
 
 여러 LLM 서비스의 계정별 사용량과 초기화 시각을 모아 보는 Android 로컬 앱입니다. 홈 화면에 계정 조합이 다른 위젯을 여러 개 배치할 수 있습니다.
 
-**v0.2.14.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭·초기화 카운트다운) 형태이며 가로 칸 수만큼 링이 한 줄에 놓이고(4×n이면 4개) 계정이 더 많으면 줄이 늘어납니다. 오른쪽 위 ↻로 모든 계정을 새로고침하고, 새 버전이 나오면 앱이 알려줍니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
+**v0.2.15.** Android-only. 홈 화면 위젯은 배터리 링(남은 %·제공자 로고·계정 별칭·초기화 카운트다운) 형태이며 가로 칸 수만큼 링이 한 줄에 놓이고(4×n이면 4개) 계정이 더 많으면 줄이 늘어납니다. 오른쪽 위 ↻로 모든 계정을 새로고침하고, 새 버전이 나오면 앱이 알려줍니다. Codex Usage는 `https://chatgpt.com/codex/settings/usage`, Grok Usage는 `https://grok.com/?_s=usage`에서 읽습니다. Desktop Collector는 사용하지 않습니다. 실기기에서 Usage 숫자를 읽기 전에는 해당 Consumer를 완료로 표시하지 않습니다. 공개 저장소: https://github.com/esleeeeee/eslee-llm-usage
 
 ## 기능
 
@@ -43,7 +43,7 @@
 | 구분·서비스 | 수집 범위 | 갱신 | 실서비스 검증 근거 |
 | --- | --- | --- | --- |
 | Consumer · Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
-| Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집. 로그인은 이메일(메일 링크를 휴대폰 브라우저에서 열어 나온 코드를 앱에 입력). Google 로그인은 앱 안 브라우저에서 Google이 차단 | fixture 검사만 수행, 실로그인 미검증 |
+| Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집. 로그인은 이메일(메일 링크를 휴대폰 브라우저에서 열어 나온 코드를 앱에 입력). Google 로그인은 Google이 앱 안 브라우저에서 막을 수 있으며, 막으면 이유와 이메일 로그인 순서를 안내 | fixture 검사만 수행, 실로그인 미검증 |
 | Consumer · Grok | Settings Usage 주간 %, reset, Extra Usage Credits. 제품별 비율은 한도에서 제외 | 자동 WebView 수집, `?_s=usage` | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
 | API · OpenAI | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
 | API · Anthropic | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |

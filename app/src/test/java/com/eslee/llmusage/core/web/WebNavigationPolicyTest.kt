@@ -78,4 +78,18 @@ class WebNavigationPolicyTest {
             "not a url",
         ).forEach { assertFalse(it, WebNavigationPolicy.isGoogleSignIn(it)) }
     }
+
+    /**
+     * Reported: Claude's Google sign-in window stayed white. WebView reported the window's
+     * empty starting document while Google's page was still loading, and stopping that
+     * "disallowed" address cancelled Google's page. Only that exact document counts as blank.
+     */
+    @Test fun onlyTheEmptyStartingDocumentCountsAsBlank() {
+        listOf("about:blank", "ABOUT:BLANK", "about:blank#blocked").forEach {
+            assertTrue(it, WebNavigationPolicy.isBlankDocument(it))
+            assertFalse("still not a page to allow: $it", WebNavigationPolicy.allows(it, setOf("claude.ai")))
+        }
+        listOf("about:srcdoc", "about:blankx", "data:text/html,x", "javascript:void(0)", "https://claude.ai/login", "", "not a url")
+            .forEach { assertFalse(it, WebNavigationPolicy.isBlankDocument(it)) }
+    }
 }

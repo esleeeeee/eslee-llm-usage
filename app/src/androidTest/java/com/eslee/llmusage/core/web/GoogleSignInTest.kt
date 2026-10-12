@@ -23,22 +23,21 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Reported: on Claude, "Continue with Google" left a blank page loading forever.
- * Google refuses sign-in inside an app's browser, so the attempt has to be explained
- * and the way back to email sign-in offered, instead of an endless blank window.
+ * When Google refuses sign-in in the sign-in screen itself, as it can in an app's
+ * browser, the refusal is explained and the way back to email sign-in is offered.
  */
 @RunWith(AndroidJUnit4::class)
 class GoogleSignInTest {
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
 
-    @Test fun aGoogleSignInIsExplainedAndLeadsBackToEmailSignIn(): Unit = runBlocking {
+    @Test fun googleRefusingTheSignInScreenIsExplained(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repository = (context.applicationContext as UsageApplication).graph.repository
         val id = repository.addAccount("claude", "Google sign-in explanation")
         try {
             ActivityScenario.launch<ProviderWebActivity>(Intent(context, ProviderWebActivity::class.java).putExtra("accountId", id)).use { scenario ->
-                // Where "Continue with Google" leads; the page itself is not needed.
+                // Google's refusal, as a phone set to Korean shows it.
                 val google = "https://accounts.google.com/v3/signin/identifier"
                 var sent = false
                 withTimeout(10_000) {
@@ -46,7 +45,7 @@ class GoogleSignInTest {
                         scenario.onActivity { activity ->
                             descendants(activity.window.decorView).filterIsInstance<WebView>().firstOrNull()?.let { web ->
                                 web.stopLoading()
-                                web.loadDataWithBaseURL(google, "<html><body>Sign in</body></html>", "text/html", "UTF-8", google)
+                                web.loadDataWithBaseURL(google, "<html><body><h1>로그인할 수 없음</h1><p>이 브라우저 또는 앱이 안전하지 않을 수 있습니다.</p></body></html>", "text/html", "UTF-8", google)
                                 sent = true
                             }
                         }
@@ -75,6 +74,6 @@ class GoogleSignInTest {
     }
 
     private fun assertTraced() {
-        org.junit.Assert.assertTrue("the attempt must be in the diagnostics", WebTrace.snapshot().any { it.contains("google-signin") && it.contains("claude") })
+        org.junit.Assert.assertTrue("the attempt must be in the diagnostics", WebTrace.snapshot().any { it.contains("google-signin · claude blocked") })
     }
 }

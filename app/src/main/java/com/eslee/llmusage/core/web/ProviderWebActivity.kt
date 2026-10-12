@@ -48,8 +48,11 @@ class ProviderWebActivity : ComponentActivity() {
     private var resumeMonitoring: (() -> Unit)? = null
     private var updateAuthAction: () -> Unit = {}
     private var completionToken = 0
-    /** The Google sign-in explanation is shown once per visit; trying anyway is the user's call. */
+    /** The Google sign-in explanation is shown once per visit. */
     private var googleExplained = false
+    private var googleNotice: android.app.AlertDialog? = null
+    /** Sign-in windows that have shown a page of their own; the rest are still on their empty starting document. */
+    private val landedPopups = mutableSetOf<WebView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdgeContent()
@@ -147,16 +150,33 @@ class ProviderWebActivity : ComponentActivity() {
             web.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     autoReadToken++
+                    // When a page touches the sign-in window it just opened, WebView reports
+                    // the window's empty starting document while the window's first real page
+                    // is still loading. Stopping there cancelled that page: Claude's Google
+                    // sign-in sat on a white window, its trace showing only about:blank (v0.2.14).
+                    if (WebNavigationPolicy.isBlankDocument(url)) {
+                        WebTrace.url(if (view === web) "start" else "start(popup)", url, "blank, left loading")
+                        return
+                    }
                     WebTrace.url(if (view === web) "start" else "start(popup)", url)
                     host.text = Uri.parse(url).host.orEmpty()
-                    if (WebNavigationPolicy.isGoogleSignIn(url)) {
-                        host.setText(R.string.web_google_signin_warning)
-                        explainGoogleSignIn(web, provider)
+                    if (WebNavigationPolicy.isGoogleSignIn(url)) host.setText(R.string.web_google_signin_warning)
+                    val decision = WebNavigationPolicy.inspect(url, provider.allowedHosts)
+                    if (decision == NavigationDecision.ALLOW) {
+                        if (view !== web) landedPopups += view
+                    } else {
+                        WebTrace.url(if (view === web) "stopped" else "stopped(popup)", url, decision.name)
+                        view.stopLoading()
+                        if (view !== web) closeIfNeverLanded(web, view)
                     }
-                    if (WebNavigationPolicy.inspect(url, provider.allowedHosts) != NavigationDecision.ALLOW) view.stopLoading()
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    return blockIfDisallowed(request.url.toString(), provider.allowedHosts, request.isForMainFrame)
+                    val url = request.url.toString()
+                    val blocked = blockIfDisallowed(url, provider.allowedHosts, request.isForMainFrame)
+                    if (view !== web && request.isForMainFrame) {
+                        if (blocked) closeIfNeverLanded(web, view) else WebTrace.url("nav(popup)", url)
+                    }
+                    return blocked
                 }
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
                     WebTrace.url("neterr", request.url.toString(), "code=${error.errorCode} main=${request.isForMainFrame}")
@@ -165,28 +185,42 @@ class ProviderWebActivity : ComponentActivity() {
                     WebTrace.url("http", request.url.toString(), "status=${response.statusCode} main=${request.isForMainFrame}")
                 }
                 override fun onPageFinished(view: WebView, url: String) {
+                    if (WebNavigationPolicy.isBlankDocument(url)) return
                     host.text = Uri.parse(url).host.orEmpty()
                     if (view === web) {
                         WebTrace.url("finish", url)
                         monitorSession(web, accountId, graph, provider, host)
                         if (UsageSurface.isUsagePage(url, provider.usageUrl)) scheduleUsageRead(web, accountId, graph, provider)
                         else if (UsageSurface.isAuthCompletionPage(url)) completeSignIn(web, url, provider)
-                    } else view.evaluateJavascript(AUTH_STATE_JS) { encoded ->
-                        if (closing || view !in popups || view.url != url) return@evaluateJavascript
-                        val payload = runCatching { JSONObject(JSONTokener(encoded).nextValue() as String) }.getOrNull()
-                        val text = payload?.optString("text").orEmpty()
-                        val state = PageAuthStateDetector.detect(url, text, payload?.optBoolean("hasPassword") == true, payload?.optBoolean("hasComposer") == true)
-                        val kind = UsageSurface.classify(url, text)
-                        WebTrace.url("finish(popup)", url, "kind=$kind state=$state")
-                        when (kind) {
-                            AuthPageKind.GOOGLE_WEBVIEW_BLOCK -> host.setText(R.string.web_google_webview_block)
-                            AuthPageKind.DEVICE_VERIFICATION -> host.setText(R.string.web_device_verification)
-                            else -> if (state == PageAuthState.SIGNED_IN && WebNavigationPolicy.allows(url, provider.allowedHosts)) {
-                                verified = true
-                                ProfileSessions.flush(view)
-                                web.webChromeClient?.onCloseWindow(view)
-                                provider.usageUrl?.let(web::loadUrl)
-                            }
+                    } else inspectPopup(view, url, "finish(popup)")
+                }
+                override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                    // Google's sign-in moves between its screens without loading a new page,
+                    // so a refusal shown that way never reaches onPageFinished. Look again once
+                    // the new screen has had a moment to draw.
+                    if (view !== web && WebNavigationPolicy.isGoogleSignIn(url)) {
+                        view.postDelayed({ if (view in popups) inspectPopup(view, view.url.orEmpty(), "screen(popup)") }, 1_000L)
+                    }
+                }
+                /** Reads what a sign-in window shows: Google's refusal, a verification step, or a finished sign-in. */
+                private fun inspectPopup(view: WebView, url: String, event: String) = view.evaluateJavascript(AUTH_STATE_JS) { encoded ->
+                    if (closing || view !in popups || view.url != url) return@evaluateJavascript
+                    val payload = runCatching { JSONObject(JSONTokener(encoded).nextValue() as String) }.getOrNull()
+                    val text = payload?.optString("text").orEmpty()
+                    val state = PageAuthStateDetector.detect(url, text, payload?.optBoolean("hasPassword") == true, payload?.optBoolean("hasComposer") == true)
+                    val kind = UsageSurface.classify(url, text)
+                    WebTrace.url(event, url, "kind=$kind state=$state")
+                    when (kind) {
+                        AuthPageKind.GOOGLE_WEBVIEW_BLOCK -> {
+                            host.setText(R.string.web_google_webview_block)
+                            if (WebNavigationPolicy.isGoogleSignIn(url)) explainGoogleSignIn(web, provider)
+                        }
+                        AuthPageKind.DEVICE_VERIFICATION -> host.setText(R.string.web_device_verification)
+                        else -> if (state == PageAuthState.SIGNED_IN && WebNavigationPolicy.allows(url, provider.allowedHosts)) {
+                            verified = true
+                            ProfileSessions.flush(view)
+                            web.webChromeClient?.onCloseWindow(view)
+                            provider.usageUrl?.let(web::loadUrl)
                         }
                     }
                 }
@@ -231,7 +265,8 @@ class ProviderWebActivity : ComponentActivity() {
                 }
                 override fun onCloseWindow(window: WebView) {
                     if (popups.remove(window)) {
-                        WebTrace.record("popup-close")
+                        // "blank": the window never showed a page of its own, the case to look into.
+                        WebTrace.record("popup-close", if (landedPopups.remove(window)) "" else "blank")
                         (window.parent as? ViewGroup)?.removeView(window)
                         ProfileSessions.destroy(window)
                         updateAuthAction()
@@ -307,24 +342,35 @@ class ProviderWebActivity : ComponentActivity() {
     }
 
     /**
-     * Google refuses sign-in inside an app's browser, and the app does not disguise
-     * itself to get past that. On Claude the attempt ended on a blank window that kept
-     * loading, with nothing saying why (reported 2026-10-12). So the moment a Google
-     * sign-in starts, say it cannot finish here and offer the way that does: the same
-     * address through the provider's email sign-in.
+     * A sign-in window whose first page is refused would stay an empty white sheet over
+     * the sign-in screen, with nothing in it to go back to. Close it instead; the refusal
+     * toast says why. A window that has already shown a page keeps it.
+     */
+    private fun closeIfNeverLanded(web: WebView, popup: WebView) {
+        if (popup in landedPopups) return
+        // Not from inside this WebView callback: the window is destroyed when it closes.
+        popup.post { if (popup in popups) web.webChromeClient?.onCloseWindow(popup) }
+    }
+
+    /**
+     * Google can refuse sign-in inside an app's browser, and the app does not disguise
+     * itself to get past that. When Google's own page says so, explain it and offer the
+     * way that finishes: the same address through the provider's email sign-in. Not
+     * before: Google has let sign-in through in this browser (Grok, v0.1.8), and Claude's
+     * white window turned out to be the app cancelling Google's page (v0.2.15).
      */
     private fun explainGoogleSignIn(web: WebView, provider: ProviderDefinition) {
-        if (googleExplained || isFinishing) return
+        if (googleExplained || isFinishing || closing) return
         googleExplained = true
-        WebTrace.record("google-signin", provider.id)
-        android.app.AlertDialog.Builder(this)
+        WebTrace.record("google-signin", "${provider.id} blocked")
+        googleNotice = android.app.AlertDialog.Builder(this)
             .setTitle(R.string.web_google_dialog_title)
             .setMessage(if (provider.id == "claude") R.string.web_google_dialog_claude else R.string.web_google_dialog_body)
             .setPositiveButton(R.string.web_google_dialog_email) { _, _ ->
                 popups.toList().forEach { web.webChromeClient?.onCloseWindow(it) }
                 if (WebNavigationPolicy.isGoogleSignIn(web.url.orEmpty())) provider.loginUrl?.let(web::loadUrl)
             }
-            .setNegativeButton(R.string.web_google_dialog_try, null)
+            .setNegativeButton(R.string.web_google_dialog_dismiss, null)
             .show()
     }
 
@@ -431,6 +477,8 @@ class ProviderWebActivity : ComponentActivity() {
                 val state = PageAuthStateDetector.detect(url, text, payload?.optBoolean("hasPassword") == true, payload?.optBoolean("hasComposer") == true)
                 if (kind == AuthPageKind.GOOGLE_WEBVIEW_BLOCK || kind == AuthPageKind.DEVICE_VERIFICATION) {
                     status.setText(if (kind == AuthPageKind.GOOGLE_WEBVIEW_BLOCK) R.string.web_google_webview_block else R.string.web_device_verification)
+                    // Only Google's own page: the same words in a conversation on the provider's page are not a refusal.
+                    if (kind == AuthPageKind.GOOGLE_WEBVIEW_BLOCK && WebNavigationPolicy.isGoogleSignIn(url)) explainGoogleSignIn(web, provider)
                 } else if (popups.isEmpty() && UsageSurface.isProviderPage(url, provider.usageUrl)) {
                     if (state == PageAuthState.SIGNED_IN && !verified) { verified = true; ProfileSessions.flush(web) }
                     if (text != previous && text.isNotBlank()) {
@@ -564,6 +612,7 @@ class ProviderWebActivity : ComponentActivity() {
             ProfileSessions.destroy(it)
         }
         popups.clear()
+        landedPopups.clear()
         browser?.let {
             (it.parent as? ViewGroup)?.removeView(it)
             it.stopLoading()
@@ -574,6 +623,8 @@ class ProviderWebActivity : ComponentActivity() {
 
     override fun onDestroy() {
         resumeMonitoring = null
+        // Restarting sign-in recreates this screen; a dialog still up would leak its window.
+        googleNotice?.dismiss()
         destroyBrowser()
         super.onDestroy()
     }
