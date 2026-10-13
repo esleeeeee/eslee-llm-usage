@@ -242,6 +242,69 @@ class ConsumerUsageParserTest {
         assertEquals(now + 14_400_000, buckets.first { it.id == "session" }.resetAt)
         assertEquals(72.0, buckets.first { it.id == "weekly" }.remainingPercent!!, 0.0)
     }
+
+    /**
+     * Reported: Claude's weekly ring stayed at 100% while the 5-hour one moved. The
+     * usage page now calls the weekly row "이번 주" and captions each model's own
+     * weekly row "별도 주간 한도 대상: Sonnet · …"; that caption was taken for the
+     * weekly label, so Sonnet's unused 0% stood in for the week. The fixtures follow
+     * the page's own components and strings (claude.ai, 2026-10-13), in both layouts.
+     */
+    @Test fun claudeWeeklyIsTheWeekRowNotAModelsSeparateLimit() {
+        val thursdayTen = Instant.parse("2026-09-10T01:00:00Z").toEpochMilli()
+        val sessions = mapOf(
+            "usage_pace_korean" to Instant.parse("2026-09-09T06:00:00Z").toEpochMilli(),
+            "usage_pace_folded_korean" to Instant.parse("2026-09-09T16:00:00Z").toEpochMilli(),
+            "usage_pace_english" to Instant.parse("2026-09-09T06:00:00Z").toEpochMilli(),
+            "usage_grouped_korean" to now + 15_600_000,
+        )
+        for ((name, sessionReset) in sessions) {
+            val snapshot = (parsed("claude", name) as ProviderResult.Success).snapshot
+            val session = snapshot.buckets.first { it.id == "session" }
+            val weekly = snapshot.buckets.first { it.id == "weekly" }
+            assertEquals(name, 55.0, session.usedPercent!!, 0.0)
+            assertEquals(name, sessionReset, session.resetAt)
+            assertEquals(name, 23.0, weekly.usedPercent!!, 0.0)
+            assertEquals(name, thursdayTen, weekly.resetAt)
+            assertEquals(name, 0.0, snapshot.buckets.first { it.id == "sonnet" }.usedPercent!!, 0.0)
+            assertEquals(name, listOf("session", "weekly", "sonnet"), snapshot.buckets.map { it.id })
+        }
+    }
+
+    @Test fun clockTimesWithAWeekdayOrDateAreThatDayNotToday() {
+        // Wednesday 2026-09-09 09:00 in Seoul.
+        assertEquals(Instant.parse("2026-09-10T01:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("재설정: (목요일) 오전 10:00", now, localZone))
+        assertEquals(Instant.parse("2026-09-16T00:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("재설정: (수) 오전 9:00", now, localZone))
+        assertEquals(Instant.parse("2026-09-09T06:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("Resets at 3:00 PM", now, localZone))
+        assertEquals(Instant.parse("2026-09-10T01:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("Resets Thu 10:00 AM", now, localZone))
+        assertEquals(Instant.parse("2026-10-20T01:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("Resets Oct 20, 10:00 AM", now, localZone))
+        assertEquals(Instant.parse("2026-10-20T01:00:00Z").toEpochMilli(), ConsumerUsageParser.parseReset("재설정: 10월 20일 오전 10:00", now, localZone))
+        // A numeric date it cannot read is not dropped in favour of the clock.
+        assertNull(ConsumerUsageParser.parseReset("Resets 9/15/2026, 2:18 PM", now, localZone))
+    }
+
+    /** Sonnet's row has no reset of its own; the Opus row after it does, and that one is Opus's. */
+    @Test fun claudeModelRowKeepsItsOwnResetOnly() {
+        val text = "현재 세션\n오후 3:00에 재설정\n55% 사용됨\n이번 주\n재설정: (목요일) 오전 10:00\n23% 사용됨\n" +
+            "이번 주 Sonnet\nSonnet용 별도 주간 한도\n0% 사용됨\n이번 주 Opus\n별도 주간 한도 대상: Opus · 재설정: (금요일) 오후 2:00\n40% 사용됨"
+        val snapshot = (ConsumerUsageParser.parse("claude", "a", text, now, localZone) as ProviderResult.Success).snapshot
+        val sonnet = snapshot.buckets.first { it.id == "sonnet" }
+        assertEquals(0.0, sonnet.usedPercent!!, 0.0)
+        assertNull(sonnet.resetAt)
+        assertEquals(23.0, snapshot.buckets.first { it.id == "weekly" }.usedPercent!!, 0.0)
+    }
+
+    /** The redesigned page's bar layout calls the weekly row "매주" and counts what is left. */
+    @Test fun claudeRedesignWeeklyRowIsRead() {
+        val text = "플랜 사용량\n현재 세션\n2시간 10분 후 재설정\n45% 남음\n매주\n재설정: (목) 오전 10:00\n77% 남음\nSonnet만\n아직 Sonnet을(를) 사용하지 않았습니다\n100% 남음"
+        val snapshot = (ConsumerUsageParser.parse("claude", "a", text, now, localZone) as ProviderResult.Success).snapshot
+        val session = snapshot.buckets.first { it.id == "session" }
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(45.0, session.remainingPercent!!, 0.0)
+        assertEquals(now + 7_800_000, session.resetAt)
+        assertEquals(77.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-10T01:00:00Z").toEpochMilli(), weekly.resetAt)
+    }
     @Test fun chatgptKnownSurfaceAndResetOnly() {
         assertTrue(parsed("chatgpt", "usage_normal") is ProviderResult.Success)
         val snapshot = (parsed("chatgpt", "usage_partial") as ProviderResult.Success).snapshot

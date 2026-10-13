@@ -1,6 +1,7 @@
 package com.eslee.llmusage.provider
 
 import com.eslee.llmusage.core.model.*
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -9,25 +10,37 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.LocalDateTime
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.6"
-    /** A quota label opens a limit of its own; any other label only ends the section before it. */
-    private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true)
-    private fun label(id: String, title: String, pattern: String, quota: Boolean = true) = Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota)
+    const val VERSION = "1.2.7"
+    /**
+     * A quota label opens a limit of its own; any other label only ends the section before it.
+     * A share is part of the limit above it, so that limit's reset time may still follow it.
+     */
+    private data class Label(val id: String, val title: String, val pattern: Regex, val quota: Boolean = true, val share: Boolean = false)
+    private fun label(id: String, title: String, pattern: String, quota: Boolean = true, share: Boolean = false) =
+        Label(id, title, Regex(pattern, RegexOption.IGNORE_CASE), quota, share)
     private val labels = mapOf(
         // Grok has one weekly limit and lists each product's share of it under the
         // limit. Those shares are not limits, so they close the weekly section
         // without becoming rings: a share with a number used to stand in for the
         // weekly figure whenever the page drew that figure out of innerText's reach.
         "grok" to listOf(label("weekly", "Weekly usage", "weekly(?:\\s+supergrok)?\\s+(?:usage|limit)|주간 사용량|매주.*한도|주간.*한도"),
-            label("chat", "Chat", "^chat$", quota = false), label("imagine", "Imagine", "^imagine$", quota = false),
-            label("voice", "Voice", "^voice$", quota = false), label("build", "Build", "^build$", quota = false), label("api", "API", "^api$", quota = false)),
-        "claude" to listOf(label("session", "Current session", "current session|5[- ]hour(?: session)?|현재 세션|5시간"),
-            label("weekly", "Weekly usage", "weekly(?: usage| limits?)?|all models|주간(?: 사용량| 한도)?|모든 모델"),
-            label("sonnet", "Sonnet", "sonnet only|sonnet만")),
+            label("chat", "Chat", "^chat$", quota = false, share = true), label("imagine", "Imagine", "^imagine$", quota = false, share = true),
+            label("voice", "Voice", "^voice$", quota = false, share = true), label("build", "Build", "^build$", quota = false, share = true),
+            label("api", "API", "^api$", quota = false, share = true)),
+        // Claude's page has two layouts: rows "모든 모델 / Sonnet만" under "주간 한도", or
+        // "이번 주" and "이번 주 Sonnet" captioned "별도 주간 한도 대상: Sonnet · …". That
+        // caption and the weekly headline above the rows ("주간 한도의 23%를 사용했습니다.")
+        // name the week too, so a label is a whole line: the caption once made Sonnet's
+        // unused 0% the account's weekly figure. Other models' weekly rows only end a section.
+        "claude" to listOf(label("session", "Current session", "^(?:current session|현재 세션|5[- ]hour(?: session| limit)?|5시간(?: 세션| 한도)?)$"),
+            label("weekly", "Weekly usage", "^(?:weekly(?: usage| limits?)?|this week|all models|주간(?: 사용량| 한도)|이번 주|매주|모든 모델)$"),
+            label("sonnet", "Sonnet", "^(?:sonnet(?: only| this week)?|sonnet만|이번 주 sonnet)$"),
+            label("scoped", "Model limit", "^(?:이번 주 [^\\d%]+|[^\\d%]+ this week|[^\\d%]+ (?:only|전용)|opus|claude design|cowork)$", quota = false)),
         "chatgpt" to listOf(
             label("session", "5-hour usage", "^(?:5[- ]hour(?:\\s+(?:usage(?: limit)?|limit))?|five[- ]hour|5h(?:\\s+(?:usage|limit))?|세션 사용량|5시간(?: (?:사용|단위))?(?: 한도)?)$"),
             label("weekly", "Weekly usage", "weekly usage(?: limit)?|weekly limit|주간 사용량(?: 한도)?|주간 한도|주간 사용 한도"),
@@ -73,7 +86,7 @@ object ConsumerUsageParser {
             val nextLabel = matches.getOrNull(index + 1)?.first ?: lines.size
             // A product's share below Grok's weekly limit ends the figures, not the limit:
             // the reset time is printed after the shares.
-            val nextQuota = matches.drop(index + 1).firstOrNull { it.second.quota }?.first ?: lines.size
+            val nextQuota = matches.drop(index + 1).firstOrNull { !it.second.share }?.first ?: lines.size
             val stop = Regex("Extra Usage Credits|upgrade|special offer|save \\d|업그레이드|할인", RegexOption.IGNORE_CASE)
             val end = minOf(nextLabel, start + 6)
             val sectionLines = lines.subList(start, end).takeWhile { !stop.containsMatchIn(it) }
@@ -529,11 +542,36 @@ object ConsumerUsageParser {
                 val hour = if (match.groupValues[4] == "오후") {
                     if (rawHour == 12) 12 else rawHour + 12
                 } else if (rawHour == 12) 0 else rawHour
+                // Claude names the day of a later reset: "재설정: (목요일) 오전 10:00".
+                if (match.groupValues[1].isBlank()) koreanWeekday.find(line.substring(0, match.range.first))?.let { day ->
+                    val name = day.groupValues[1].ifEmpty { day.groupValues[2] }
+                    return nextWeekday(DayOfWeek.of("월화수목금토일".indexOf(name) + 1), LocalTime.of(hour, minute), now, localZone)
+                }
                 var reset = ZonedDateTime.of(date, LocalTime.of(hour, minute), localZone)
                 if (match.groupValues[1].isBlank() && !reset.toInstant().isAfter(Instant.ofEpochMilli(now))) {
                     reset = reset.plusDays(1)
                 }
                 return reset.toInstant().toEpochMilli()
+            }
+        }
+        // Claude's English captions: "Resets at 3:00 PM", "Resets Thu 1:00 AM", "Resets Oct 20, 10:00 AM".
+        // A dated time that failed above ("February 30, 2026", "10/23, 4:29 AM") is not a clock time for today.
+        if (!englishYearDate.containsMatchIn(line) && !numericDate.containsMatchIn(line)) englishClock.find(line)?.let { match ->
+            val rawHour = match.groupValues[4].toInt()
+            val minute = match.groupValues[5].toInt()
+            if (rawHour in 1..12 && minute in 0..59) {
+                val time = LocalTime.of(rawHour % 12 + if (match.groupValues[6].equals("p", true)) 12 else 0, minute)
+                val weekday = match.groupValues[1].takeIf(String::isNotEmpty)
+                val month = match.groupValues[2].takeIf(String::isNotEmpty)
+                val localNow = Instant.ofEpochMilli(now).atZone(localZone)
+                return when {
+                    weekday != null -> nextWeekday(DayOfWeek.entries.first { it.name.startsWith(weekday.uppercase()) }, time, now, localZone)
+                    month != null -> runCatching {
+                        val moment = ZonedDateTime.of(LocalDate.of(localNow.year, englishMonths.indexOf(month.lowercase()) + 1, match.groupValues[3].toInt()), time, localZone)
+                        (if (moment.toInstant().isBefore(Instant.ofEpochMilli(now).minusSeconds(60L * 86_400))) moment.plusYears(1) else moment).toInstant().toEpochMilli()
+                    }.getOrNull()
+                    else -> localNow.with(time).let { if (it.isAfter(localNow)) it else it.plusDays(1) }.toInstant().toEpochMilli()
+                }
             }
         }
         val dated = Regex("(\\d{4}-\\d{2}-\\d{2})(?:(?:[ T]| at )(\\d{2}:\\d{2})(?::(\\d{2}))?)?(?:\\s*(Z|UTC|[+-]\\d{2}:?\\d{2}))?", RegexOption.IGNORE_CASE).find(line)
@@ -546,6 +584,24 @@ object ConsumerUsageParser {
             runCatching { OffsetDateTime.parse(stamp).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
         }
         return null
+    }
+
+    /** A weekday written right before a Korean clock time: "(목)", "(목요일)", "목요일". */
+    private val koreanWeekday = Regex("(?:\\(([월화수목금토일])(?:요일)?\\)|([월화수목금토일])요일)\\s*$")
+    private val englishMonths = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    private val englishYearDate = Regex("\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+\\d{1,2},?\\s+\\d{4}\\b", RegexOption.IGNORE_CASE)
+    private val numericDate = Regex("\\b\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?,?\\s+(?:at\\s+)?\\d{1,2}:\\d{2}")
+    private val englishClock = Regex(
+        "(?:\\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\\.?,?\\s+|\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d{1,2}),?\\s+)?" +
+            "(?:at\\s+)?\\b(\\d{1,2}):(\\d{2})\\s*([ap])\\.?m\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** The next [day] at [time] after [now]; today's has to be still ahead. */
+    private fun nextWeekday(day: DayOfWeek, time: LocalTime, now: Long, localZone: ZoneId): Long {
+        val localNow = Instant.ofEpochMilli(now).atZone(localZone)
+        val moment = localNow.with(TemporalAdjusters.nextOrSame(day)).with(time)
+        return (if (moment.isAfter(localNow)) moment else moment.plusWeeks(1)).toInstant().toEpochMilli()
     }
 
     private val gmtToken = Regex("\\bGMT([^\\s]*)")
