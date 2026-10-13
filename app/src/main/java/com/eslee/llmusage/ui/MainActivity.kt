@@ -183,7 +183,13 @@ internal fun UsageApp(graph: AppGraph, initialAccountId: String? = null) {
         scope.launch { snackbar.showSnackbar(resources.getString(R.string.update_download_started, found.version)) }
         scope.launch {
             if (UpdateDownload.await(context, id) == UpdateDownload.State.DONE) {
-                snackbar.showSnackbar(resources.getString(R.string.update_download_done), duration = SnackbarDuration.Long)
+                // The finished notification did not open the installer on the user's phone,
+                // so the app opens it. The first time, Android asks to allow that instead.
+                UpdateDownload.install(context, id)
+                if (snackbar.showSnackbar(resources.getString(R.string.update_download_done), resources.getString(R.string.update_install),
+                        withDismissAction = true, duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed) {
+                    UpdateDownload.install(context, id)
+                }
             } else if (snackbar.showSnackbar(resources.getString(R.string.update_download_failed), resources.getString(R.string.update_open_page),
                     duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                 openInBrowser(found.page)

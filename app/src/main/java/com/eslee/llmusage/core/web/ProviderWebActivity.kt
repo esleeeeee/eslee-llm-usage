@@ -322,7 +322,8 @@ class ProviderWebActivity : ComponentActivity() {
             updateAuthAction()
             details.addView(authAction)
             toolbar.addView(handle)
-            setExpanded(true, animate = false)
+            // Collapsed at first: the provider's own sign-in form needs the room, and a swipe or a tap brings the buttons back.
+            setExpanded(false, animate = false)
             webHost.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             root.addView(webHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))

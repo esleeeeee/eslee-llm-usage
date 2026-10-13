@@ -36,6 +36,22 @@ class UpdateDownloadTest {
                 val local = row.getString(row.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI)).orEmpty()
                 assertTrue("saved outside Downloads: $local", local.contains(Environment.DIRECTORY_DOWNLOADS) && local.endsWith(name))
             }
+            // Reported: the finished notification did not open the installer, so the app opens it.
+            // A fresh install has not been allowed to install updates yet; Android's switch for that opens first.
+            val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            val allowSetting = instrumentation.addMonitor(
+                android.content.IntentFilter(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply { addDataScheme("package") }, null, true)
+            val installer = instrumentation.addMonitor(
+                android.content.IntentFilter(android.content.Intent.ACTION_VIEW).apply { addDataType(UpdateDownload.APK_TYPE) }, null, true)
+            try {
+                val opened = UpdateDownload.install(context, id)
+                assertEquals(context.packageManager.canRequestPackageInstalls(), opened)
+                val monitor = if (opened) installer else allowSetting
+                assertTrue("neither the installer nor the allow-install setting was opened", instrumentation.checkMonitorHit(monitor, 1))
+            } finally {
+                instrumentation.removeMonitor(allowSetting)
+                instrumentation.removeMonitor(installer)
+            }
         } finally {
             // Removing the download deletes the file it wrote.
             manager.remove(id)

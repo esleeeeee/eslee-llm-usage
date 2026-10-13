@@ -169,7 +169,8 @@
     <string name="update_download">Download</string>
     <string name="update_download_title">eslee LLM Usage %1$s</string>
     <string name="update_download_started">Downloading %1$s. The notification shows its progress.</string>
-    <string name="update_download_done">Downloaded to My Files → Downloads. Tap the finished notification or the file there to install.</string>
+    <string name="update_download_done">Downloaded to My Files → Downloads. The installer opens; the first time, allow this app to install updates, then tap Install.</string>
+    <string name="update_install">Install</string>
     <string name="update_download_failed">Could not download the update.</string>
     <string name="update_open_page">Release page</string>
     <string name="update_skip">Skip this version</string>
