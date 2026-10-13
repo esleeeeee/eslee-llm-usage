@@ -43,7 +43,7 @@
 | 구분·서비스 | 수집 범위 | 갱신 | 실서비스 검증 근거 |
 | --- | --- | --- | --- |
 | Consumer · Codex (ChatGPT 계정) | 5시간·주간 한도, reset, reserve, banked reset, credits | 계정 profile을 재사용하는 자동 WebView 수집 | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
-| Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집. 로그인은 이메일(메일 링크를 휴대폰 브라우저에서 열어 나온 코드를 앱에 입력). Google 로그인은 Google이 앱 안 브라우저에서 막을 수 있으며, 막으면 이유와 이메일 로그인 순서를 안내 | 실기기 로그인·세션 한도 수집 확인(2026-10-13). 주간 한도는 v0.2.17에서 바뀐 화면 구성에 맞춰 수정, 실기기 확인 전 |
+| Consumer · Claude | 표시된 세션·주간 한도 | 계정별 웹 화면 수집. 로그인은 이메일(메일 링크를 휴대폰 브라우저에서 열어 나온 코드를 앱에 입력). Google 로그인은 Google이 앱 안 브라우저에서 막을 수 있으며, 막으면 이유와 이메일 로그인 순서를 안내 | 실기기 로그인과 세션·주간 한도 수집 확인(v0.2.17, 2026-10-13) |
 | Consumer · Grok | Settings Usage 주간 %, reset, Extra Usage Credits. 제품별 비율은 한도에서 제외 | 자동 WebView 수집, `?_s=usage` | [v0.2.12 한국어 실계정·위젯 검증](docs/QA_V0212.md) |
 | API · OpenAI | UTC 오늘 completions 토큰·요청 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
 | API · Anthropic | UTC 오늘 messages 토큰 | Admin key, 백그라운드 | 공식 API 구현·fixture 검사, 실계정 미검증 |
