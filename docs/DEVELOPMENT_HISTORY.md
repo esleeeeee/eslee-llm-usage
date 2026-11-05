@@ -1451,3 +1451,5 @@ CI(de58ada, [run 38335021084](https://github.com/esleeeeee/eslee-llm-usage/actio
 - `/settings/usage`가 채팅 화면 위의 설정 창으로 열리는지, 단독 페이지인지. 창이면 사이드바 텍스트가 함께 읽힌다(진단은 한도 라벨부터 남김).
 - Pro 계정의 "GPT-5.3-Codex-Spark 사용 한도" 구역 아래에 5시간/주간 줄이 다시 나오면, 일반 한도와 섞일 수 있다. Plus 계정에는 해당 없음.
 - 반복되는 3계정 동시 실패(`bg-net · no data requests`, Claude "로딩 중")는 백그라운드에서 네트워크가 늦게 열리는 경우로 보이며 이번 변경 대상이 아니다.
+
+CI(289ab53, [run 41977970945](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/41977970945)): 계측 테스트 **44개 모두 통과**, v0.2.18 프리릴리스 게시(2026-11-05 15:17 KST, APK 5,765,882바이트, SHA-256 `d55b34536bb749b1495052b5a62d3d6a4099069437498f49aeb9f2709ea1283d`).
