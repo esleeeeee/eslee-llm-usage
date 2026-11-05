@@ -15,7 +15,7 @@ import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.7"
+    const val VERSION = "1.2.8"
     /**
      * A quota label opens a limit of its own; any other label only ends the section before it.
      * A share is part of the limit above it, so that limit's reset time may still follow it.
@@ -342,12 +342,15 @@ object ConsumerUsageParser {
         return meanings.singleOrNull() ?: PercentMeaning.UNKNOWN
     }
 
-    private val resetsHeader = Regex("사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    // "사용량 초기화" is the section title ChatGPT's /settings/usage falls back to (2026-11).
+    private val resetsHeader = Regex("사용량? 한도 (?:재설정|초기화)|^사용량 초기화$|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    /** The section saying outright that nothing is banked: zero, not unknown. */
+    private val resetsEmpty = Regex("사용 가능한 (?:초기화|재설정)(?:이)? 없음|no (?:usage )?resets? available", RegexOption.IGNORE_CASE)
     private val resetsStop = Regex("크레딧 사용 내역|추가 사용 크레딧|Extra Usage Credits|자동 충전|Auto[- ]?recharge|남은 크레딧", RegexOption.IGNORE_CASE)
     private val expiryMarker = Regex("만료|expir", RegexOption.IGNORE_CASE)
     private val expiryClock = Regex("\\d{1,2}:\\d{2}|\\d{1,2}시\\s*\\d{1,2}분")
     private val creditItem = Regex("재설정|초기화|reset", RegexOption.IGNORE_CASE)
-    private val creditNoise = Regex("(?:재설정|초기화) 사용|use (?:a )?reset|(?:재설정|초기화)를 사용해|재설정을 사용해|사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
+    private val creditNoise = Regex("사용 가능한 (?:초기화|재설정)|^사용량 초기화$|(?:재설정|초기화) 사용|use (?:a )?reset|(?:재설정|초기화)를 사용해|재설정을 사용해|사용량? 한도 (?:재설정|초기화)|usage limit resets?|banked resets?|resets? available", RegexOption.IGNORE_CASE)
     private val creditAvailable = Regex("재설정 가능|reset available", RegexOption.IGNORE_CASE)
     /** The button each banked reset carries; one per reset even where the page prints no expiry. */
     private val creditAction = Regex("^(?:초기화 사용(?: 전체 재설정(?:\\(주간 \\+ 5시간\\))?)?|재설정 사용|재설정 사용하기|use reset|use this reset|use)$", RegexOption.IGNORE_CASE)
@@ -423,8 +426,8 @@ object ConsumerUsageParser {
         val count = authoritativeCount ?: maxOf(credits.size, buttons)
         while (credits.size < count) credits += ResetCredit(lastLabel)
         if (credits.isEmpty() && authoritativeCount == null && section.any { creditAvailable.containsMatchIn(it) }) credits += ResetCredit(lastLabel)
-        // A mounted header with a still-loading list does not establish zero.
-        if (credits.isEmpty() && explicit == null && stated == null) return null
+        // A mounted header with a still-loading list does not establish zero; the page saying so does.
+        if (credits.isEmpty() && explicit == null && stated == null) return if ((section + listOfNotNull(lines.getOrNull(header))).any { resetsEmpty.containsMatchIn(it) }) emptyList() else null
         return (if (authoritativeCount != null) credits.take(authoritativeCount) else credits)
             .sortedWith(compareBy(nullsLast()) { it.expiresAt })
     }

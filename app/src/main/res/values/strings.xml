@@ -101,7 +101,8 @@
     <string name="delete_account">Delete account</string>
     <string name="delete_account_body">Delete this account, saved usage, credentials and its browser session? This cannot be undone.</string>
     <string name="delete">Delete</string>
-    <string name="primary">Primary</string>
+    <string name="primary_selected">Primary</string>
+    <string name="primary_set">Make primary</string>
     <string name="sync_settings">Sync</string>
     <string name="interval">Sync interval</string>
     <string name="wifi_only">Unmetered networks only</string>

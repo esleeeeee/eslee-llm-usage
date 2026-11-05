@@ -692,4 +692,36 @@ class ConsumerUsageParserTest {
         assertEquals(1, snapshot.resetCredits.size)
         assertEquals(java.time.ZonedDateTime.of(2026, 9, 21, 7, 41, 0, 0, localZone).toInstant().toEpochMilli(), snapshot.resetCredits.single().expiresAt)
     }
+    /**
+     * Codex usage moved to ChatGPT's /settings/usage (reported 2026-11-05: weeks of
+     * PARSE_FAILED on the old address, which now opens the home page). The fixture is
+     * assembled from ChatGPT's published ko-KR strings (settings.usage.limits.*,
+     * settings.usage.resets.*), not captured from a signed-in page.
+     */
+    @Test fun codexSettingsUsagePageReadsLimitsAndBankedReset() {
+        val snapshot = (parsed("chatgpt", "usage_settings_korean") as ProviderResult.Success).snapshot
+        val session = snapshot.buckets.first { it.id == "session" }
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(100.0, session.remainingPercent!!, 0.0)
+        assertEquals(java.time.ZonedDateTime.of(2026, 9, 9, 16, 59, 0, 0, localZone).toInstant().toEpochMilli(), session.resetAt)
+        assertEquals(71.0, weekly.remainingPercent!!, 0.0)
+        assertEquals(java.time.ZonedDateTime.of(2026, 11, 7, 16, 59, 0, 0, localZone).toInstant().toEpochMilli(), weekly.resetAt)
+        assertEquals(2, snapshot.buckets.size)
+        assertEquals("session", snapshot.primaryBucketId)
+        assertTrue(ConsumerUsageParser.primaryHasNumbers(ProviderResult.Success(snapshot)))
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(1, snapshot.resetCredits.size)
+        assertEquals("전체 재설정(주간 + 5시간)", snapshot.resetCredits.single().label)
+        assertEquals(java.time.ZonedDateTime.of(2026, 11, 7, 7, 33, 0, 0, localZone).toInstant().toEpochMilli(), snapshot.resetCredits.single().expiresAt)
+    }
+
+    @Test fun codexSettingsSayingNoResetsMeansZeroNotUnknown() {
+        val page = "5시간 사용 한도\n40% 남음\n오후 4:59 초기화\n사용 한도 초기화\n사용 가능한 초기화 없음\n남은 크레딧\n0"
+        val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(0, snapshot.resetCredits.size)
+        // Still loading is not zero.
+        val loading = "5시간 사용 한도\n40% 남음\n사용 한도 초기화\n사용 한도 초기화를 불러오는 중…"
+        assertFalse((ConsumerUsageParser.parse("chatgpt", "a", loading, now, localZone) as ProviderResult.Success).snapshot.resetCreditsKnown)
+    }
 }

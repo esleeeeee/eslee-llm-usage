@@ -211,7 +211,9 @@ class WebUsageReader(
         val requests = if (read != null) " net+$laterRequests" else ""
         WebTrace.record("bg-read", "${provider.id} \"${account.alias}\" ${elapsed}ms ${describe(outcome)}$rejected$changed$requests")
         if (page == null) return outcome
-        if (outcome is ProviderResult.Failure && page.text.isNotBlank()) WebTrace.record("bg-context", usageContext(page.text, provider.id))
+        // Which page the read ended on (path only): a usage page that moved shows up here.
+        if (outcome is ProviderResult.Failure && page.text.isNotBlank())
+            WebTrace.record("bg-context", "${WebNavigationPolicy.redact(page.url)} ${usageContext(page.text, provider.id)}")
         // A limit found without its figure is shown as unknown; the lines under it say why.
         if (outcome is ProviderResult.Success && (outcome.snapshot.buckets.any { !ConsumerUsageParser.hasNumbers(it) || it.resetAt == null } ||
             (provider.id in BANKED_RESETS && !outcome.snapshot.resetCreditsKnown))) {
@@ -339,6 +341,9 @@ class WebUsageReader(
             val lines = text.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
             val quota = providerId?.let { ConsumerUsageParser.quotaLabelIndex(it, lines) } ?: -1
             val anchor = if (quota >= 0) quota else lines.indexOfFirst { Regex("한도|limit|usage|사용량", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+            // Without any usage word the page is something else, such as the home page with the
+            // user's own conversation titles in its sidebar: none of its text goes in the trace.
+            // The address recorded beside this says which page it was.
             if (anchor < 0) return "no usage label among ${lines.size} lines"
             return lines.subList(anchor, minOf(lines.size, anchor + 16)).joinToString(" | ")
         }

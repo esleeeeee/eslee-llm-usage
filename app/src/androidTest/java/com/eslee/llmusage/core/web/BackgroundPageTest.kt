@@ -85,7 +85,7 @@ class BackgroundPageTest {
     @Test fun resetsThatRenderOnlyInViewAreRead(): Unit = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
         val reader = WebUsageReader(context) { web, _ ->
-            web.loadDataWithBaseURL("https://chatgpt.com/codex/settings/usage", """
+            web.loadDataWithBaseURL("https://chatgpt.com/settings/usage", """
                 <html><body>5시간 사용 한도<br>45%<br>남음<br>주간 사용 한도<br>66%<br>남음
                 <div style="height:6000px"></div>
                 <div id="resets" style="min-height:20px"></div>
@@ -98,7 +98,7 @@ class BackgroundPageTest {
                     }).join('<br>');
                   }).observe(document.getElementById('resets'));
                 </script></body></html>
-            """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/codex/settings/usage")
+            """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/settings/usage")
         }
         val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
         val id = repository.addAccount("chatgpt", "Resets below the fold")
@@ -238,8 +238,8 @@ class BackgroundPageTest {
         val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
         val reader = WebUsageReader(context) { web, _ ->
             onLoad()
-            web.loadDataWithBaseURL("https://chatgpt.com/codex/settings/usage", "<html><body>${body.trimIndent()}</body></html>",
-                "text/html", "UTF-8", "https://chatgpt.com/codex/settings/usage")
+            web.loadDataWithBaseURL("https://chatgpt.com/settings/usage", "<html><body>${body.trimIndent()}</body></html>",
+                "text/html", "UTF-8", "https://chatgpt.com/settings/usage")
         }
         val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
         val id = repository.addAccount("chatgpt", "Codex metadata regression")
@@ -257,10 +257,10 @@ class BackgroundPageTest {
         var loadedAt = 0L
         val reader = WebUsageReader(context) { web, _ ->
             loadedAt = android.os.SystemClock.elapsedRealtime()
-            web.loadDataWithBaseURL("https://chatgpt.com/codex/settings/usage", """
+            web.loadDataWithBaseURL("https://chatgpt.com/settings/usage", """
                 <html><body>사용량<br>개요<br>사용량 분석<br>
                 사용량 설정을 불러올 수 없습니다.<br>다시 시도</body></html>
-            """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/codex/settings/usage")
+            """.trimIndent(), "text/html", "UTF-8", "https://chatgpt.com/settings/usage")
         }
         val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
         val id = repository.addAccount("chatgpt", "Dashboard error")

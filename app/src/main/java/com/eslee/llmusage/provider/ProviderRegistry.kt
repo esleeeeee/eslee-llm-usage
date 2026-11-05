@@ -48,7 +48,7 @@ class ProviderRegistry(debug: Boolean) {
     private val web = ProviderCapabilities(supportsBackgroundSync = true, supportsForegroundSync = true, supportsConsumerWeb = true,
         supportsPlanInfo = true, supportsResetTime = true, supportsPercentUsage = true)
     val definitions: List<ProviderDefinition> = buildList {
-        add(consumer("chatgpt", "Codex", "chatgpt.com", "https://chatgpt.com/auth/login", "https://chatgpt.com/codex/settings/usage",
+        add(consumer("chatgpt", "Codex", "chatgpt.com", "https://chatgpt.com/auth/login", "https://chatgpt.com/settings/usage",
             setOf("auth.openai.com", "auth0.openai.com", "chat.openai.com", "www.chatgpt.com")))
         add(api("openai-api", "OpenAI API", "조직 Admin key로 오늘(UTC)의 토큰·요청 사용량 조회. ChatGPT 구독과 별도."))
         add(consumer("claude", "Claude", "claude.ai", "https://claude.ai/login", "https://claude.ai/settings/usage"))

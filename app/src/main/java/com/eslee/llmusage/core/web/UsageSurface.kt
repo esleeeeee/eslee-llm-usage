@@ -6,6 +6,9 @@ enum class AuthPageKind { USAGE, LOGIN, GOOGLE_WEBVIEW_BLOCK, DEVICE_VERIFICATIO
 
 /** Classifies provider pages without reading cookies, tokens, or credentials. */
 object UsageSurface {
+    /** A leading locale segment such as "/ko-KR" or "/en". */
+    internal val localePrefix = Regex("^/[a-z]{2}(?:-[a-z]{2,4})?(?=/)", RegexOption.IGNORE_CASE)
+
     fun canCollect(url: String, usageUrl: String?, text: String, hasPassword: Boolean): Boolean =
         !hasPassword && isProviderPage(url, usageUrl) && classify(url, text) !in
             setOf(AuthPageKind.LOGIN, AuthPageKind.GOOGLE_WEBVIEW_BLOCK, AuthPageKind.DEVICE_VERIFICATION)
@@ -28,7 +31,8 @@ object UsageSurface {
         val expectedPath = expected.path.orEmpty().lowercase()
         val expectedQuery = expected.query.orEmpty().lowercase()
         if (expectedQuery.split('&').contains("_s=usage")) return query.split('&').contains("_s=usage")
-        if (expectedPath.endsWith("/settings/usage")) return path.trimEnd('/') == expectedPath.trimEnd('/')
+        // ChatGPT prefixes some pages with a locale ("/ko-KR/codex/"), so allow one before the settings path.
+        if (expectedPath.endsWith("/settings/usage")) return path.trimEnd('/').replaceFirst(localePrefix, "") == expectedPath.trimEnd('/')
         return path == expectedPath || path.startsWith(expectedPath.trimEnd('/') + "/")
     }
 

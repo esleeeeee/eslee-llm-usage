@@ -49,13 +49,18 @@ class PageAuthStateTest {
         val grok = registry.definition("grok")!!
         assertEquals("https://chatgpt.com/auth/login", startUrl(chatgpt.loginUrl, chatgpt.usageUrl, true))
         assertEquals("https://grok.com/sign-in", startUrl(grok.loginUrl, grok.usageUrl, true))
-        assertEquals("https://chatgpt.com/codex/settings/usage", startUrl(chatgpt.loginUrl, chatgpt.usageUrl, false))
+        assertEquals("https://chatgpt.com/settings/usage", startUrl(chatgpt.loginUrl, chatgpt.usageUrl, false))
         assertEquals("https://grok.com/?_s=usage", startUrl(grok.loginUrl, grok.usageUrl, false))
-        assertTrue(UsageSurface.isUsagePage("https://chatgpt.com/codex/settings/usage", chatgpt.usageUrl))
+        assertTrue(UsageSurface.isUsagePage("https://chatgpt.com/settings/usage", chatgpt.usageUrl))
+        assertTrue(UsageSurface.isUsagePage("https://chatgpt.com/ko-KR/settings/usage", chatgpt.usageUrl))
+        // The old Codex address now lands on ChatGPT's home page (reported 2026-11-05).
+        assertFalse(UsageSurface.isUsagePage("https://chatgpt.com/codex/settings/usage", chatgpt.usageUrl))
+        assertFalse(UsageSurface.isUsagePage("https://chatgpt.com/settings/usageextra", chatgpt.usageUrl))
         assertTrue(UsageSurface.isUsagePage("https://grok.com/?_s=usage", grok.usageUrl))
-        assertEquals("https://chatgpt.com/codex/settings/usage", chatgpt.usageUrl)
+        assertEquals("https://chatgpt.com/settings/usage", chatgpt.usageUrl)
         assertEquals("https://grok.com/?_s=usage", grok.usageUrl)
         assertEquals(PageAuthState.SIGNED_IN, PageAuthStateDetector.detect("https://chatgpt.com/codex/settings/usage", "5-hour limit", false))
+        assertEquals(PageAuthState.SIGNED_IN, PageAuthStateDetector.detect("https://chatgpt.com/settings/usage", "5시간 사용 한도", false))
         assertEquals(PageAuthState.SIGNED_IN, PageAuthStateDetector.detect("https://grok.com/?_s=usage", "Weekly usage", false))
         assertEquals(AuthPageKind.GOOGLE_WEBVIEW_BLOCK, UsageSurface.classify("https://accounts.google.com/signin", "This browser or app may not be secure"))
         // The phone's browser is in Korean, and so is Google's refusal.

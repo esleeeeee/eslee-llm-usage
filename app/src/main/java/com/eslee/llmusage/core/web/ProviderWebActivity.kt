@@ -329,6 +329,7 @@ class ProviderWebActivity : ComponentActivity() {
             root.addView(webHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             root.applySafeDrawingInsets()
             setContentView(root)
+            useDarkSystemBarIcons()
             toolbar.bringToFront()
             web.loadUrl(start)
             lifecycleScope.launch {

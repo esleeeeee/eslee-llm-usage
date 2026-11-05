@@ -28,7 +28,8 @@ object PageAuthStateDetector {
         }
         val usageCue = Regex("5[- ]hour|5시간 사용 한도|weekly usage|주간 사용 한도|주간 사용량", RegexOption.IGNORE_CASE)
         if (usageCue.containsMatchIn(visibleText) &&
-            ((host in setOf("chatgpt.com", "www.chatgpt.com") && path.trimEnd('/') == "/codex/settings/usage") ||
+            // Codex usage moved from /codex/settings/usage to ChatGPT's /settings/usage (found 2026-11-05).
+            ((host in setOf("chatgpt.com", "www.chatgpt.com") && path.trimEnd('/').replaceFirst(UsageSurface.localePrefix, "") in setOf("/settings/usage", "/codex/settings/usage")) ||
                 (host in setOf("grok.com", "www.grok.com") && queryContainsUsage(uri)))) return PageAuthState.SIGNED_IN
         return PageAuthState.UNKNOWN
     }

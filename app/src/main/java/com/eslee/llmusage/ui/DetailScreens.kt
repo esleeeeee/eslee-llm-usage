@@ -3,6 +3,7 @@ package com.eslee.llmusage.ui
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Refresh
@@ -52,6 +54,24 @@ import com.eslee.llmusage.widget.WidgetSlot
 import com.eslee.llmusage.widget.WidgetStateMapper
 import com.eslee.llmusage.widget.configIntent
 import kotlin.math.roundToInt
+
+/**
+ * The chosen limit shows a filled, checked "대표 항목" badge that does nothing when
+ * tapped; every other limit shows an outlined "대표로 지정" button.
+ */
+@Composable
+internal fun PrimaryControl(primary: Boolean, modifier: Modifier = Modifier, onSelect: () -> Unit) {
+    if (primary) {
+        Surface(modifier, shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(stringResource(R.string.primary_selected), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    } else {
+        OutlinedButton(onClick = onSelect, modifier = modifier) { Text(stringResource(R.string.primary_set)) }
+    }
+}
 
 @Composable
 internal fun DetailScreen(
@@ -116,7 +136,11 @@ internal fun DetailScreen(
             else item { SectionTitle(R.string.usage) }
             items(snapshot?.buckets.orEmpty(), key = { it.id }) { bucket ->
                 val primary = UsagePresentation.primary(snapshot!!, account.primaryBucketId)?.id == bucket.id
-                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                // Reported: two identical "대표" chips told the chosen limit from the other only by a
+                // faint tint. The chosen card now carries an outline and a checked badge, and the
+                // others offer an action with its own words.
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    border = if (primary) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             UsageGauge(UsageNormalizer.remainingPercent(bucket), painterResource(ProviderMarks.icon(account.providerId)), size = 64.dp, warning = status.warning)
@@ -124,7 +148,7 @@ internal fun DetailScreen(
                         }
                         // Keep the action below the content so it cannot squeeze the usage
                         // down to a few characters on small screens or at large font sizes.
-                        FilterChip(modifier = Modifier.align(Alignment.End), selected = primary, onClick = { if (!primary) onChange(account.copy(primaryBucketId = bucket.id)) }, label = { Text(stringResource(R.string.primary)) })
+                        PrimaryControl(primary, Modifier.align(Alignment.End)) { onChange(account.copy(primaryBucketId = bucket.id)) }
                     }
                 }
             }
