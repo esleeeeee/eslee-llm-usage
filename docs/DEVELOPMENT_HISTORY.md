@@ -1485,3 +1485,5 @@ CI(289ab53, [run 41977970945](https://github.com/esleeeeee/eslee-llm-usage/actio
 
 - 실기기의 백그라운드 읽기에서 Claude 리셋권 구역이 텍스트에 잡히는지. Claude는 Codex처럼 리셋권을 기다리거나 다시 스크롤하지 않는다(리셋권이 없는 계정에서 매번 7초를 더 쓰지 않도록). 잡히지 않으면 진단의 `resets=?`와 `bg-resets` 줄 부재로 보인다.
 - 영어 화면 버튼·만료 문구. 리셋권 위젯에 Claude 계정이 선택되어 있어야 줄이 보인다.
+
+CI(8c7bf04, [run 43159434230](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/43159434230)): 계측 테스트 **44개 모두 통과**, v0.2.19 프리릴리스 게시(2026-11-12 14:19 KST, APK 5,766,362바이트, SHA-256 `3008bda22e115fe5382269d80dab72a31c594118899aa73ad23711bf635c5a2b`).
