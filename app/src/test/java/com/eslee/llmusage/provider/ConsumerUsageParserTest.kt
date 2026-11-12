@@ -1,6 +1,8 @@
 package com.eslee.llmusage.provider
 
 import com.eslee.llmusage.core.model.SnapshotStatus
+import com.eslee.llmusage.ui.UsageLabels
+import com.eslee.llmusage.widget.WidgetStateMapper
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -754,9 +756,78 @@ class ConsumerUsageParserTest {
         assertEquals("전체", com.eslee.llmusage.ui.UsageLabels.creditKind("전체 초기화"))
         assertEquals("Fable", com.eslee.llmusage.ui.UsageLabels.creditKind("Fable 초기화"))
         assertEquals("Full", com.eslee.llmusage.ui.UsageLabels.creditKind("Full reset"))
-        assertEquals("전체 재설정(주간 + 5시간)", com.eslee.llmusage.ui.UsageLabels.creditKind("전체 재설정(주간 + 5시간)"))
+        // Codex's long name loses its detail, so two kinds still fit one widget line.
+        assertEquals("전체", com.eslee.llmusage.ui.UsageLabels.creditKind("전체 재설정(주간 + 5시간)"))
+        assertEquals("Full", com.eslee.llmusage.ui.UsageLabels.creditKind("Full reset (weekly + 5-hour)"))
         assertEquals("초기화", com.eslee.llmusage.ui.UsageLabels.creditKind("초기화"))
         assertNull(com.eslee.llmusage.ui.UsageLabels.creditKind(null))
+    }
+
+    @Test fun resetKindsGroupByWhatTheyRestoreSoonestFirst() {
+        val labels = com.eslee.llmusage.ui.UsageLabels
+        val claude = listOf(
+            com.eslee.llmusage.core.model.ResetCredit("Fable 초기화", 3_000L),
+            com.eslee.llmusage.core.model.ResetCredit("전체 초기화", 2_000L),
+            com.eslee.llmusage.core.model.ResetCredit("전체 초기화", 1_000L),
+        )
+        assertEquals(
+            listOf(UsageLabels.ResetKind("전체", 2, 1_000L), UsageLabels.ResetKind("Fable", 1, 3_000L)),
+            labels.resetKinds(claude, "전체 재설정"),
+        )
+        // A reset without a name reads as the default name, so it is not a second kind beside it.
+        val codex = listOf(
+            com.eslee.llmusage.core.model.ResetCredit("전체 재설정(주간 + 5시간)", 1_000L),
+            com.eslee.llmusage.core.model.ResetCredit(null, 2_000L),
+        )
+        assertTrue(labels.resetKinds(codex, "전체 재설정").isEmpty())
+        assertTrue(labels.resetKinds(emptyList(), "전체 재설정").isEmpty())
+    }
+
+    @Test fun resetWidgetCaptionPrecedence() {
+        val mapper = com.eslee.llmusage.widget.WidgetStateMapper
+        
+        val full = com.eslee.llmusage.core.model.ResetCredit("전체 초기화", 1_000L)
+        val fable = com.eslee.llmusage.core.model.ResetCredit("Fable 초기화", 2_000L)
+        // Unknown is never shown as zero or as kinds.
+        assertEquals(WidgetStateMapper.ResetCaption.UNKNOWN, mapper.resetCaption(false, listOf(full, fable), "전체 재설정"))
+        assertEquals(WidgetStateMapper.ResetCaption.NONE, mapper.resetCaption(true, emptyList(), "전체 재설정"))
+        assertEquals(WidgetStateMapper.ResetCaption.KINDS, mapper.resetCaption(true, listOf(full, fable), "전체 재설정"))
+        assertEquals(WidgetStateMapper.ResetCaption.SOONEST, mapper.resetCaption(true, listOf(full, full.copy(expiresAt = 5_000L)), "전체 재설정"))
+        assertEquals(WidgetStateMapper.ResetCaption.NO_EXPIRY, mapper.resetCaption(true, listOf(full.copy(expiresAt = null)), "전체 재설정"))
+    }
+
+    /** A tooltip between a reset's name and its expiry, and a short unpunctuated note before its button, are not resets. */
+    @Test fun captionsInsideAClaudeResetAreNotResets() {
+        val page = "이번 주\n26% 사용됨\n제한 초기화\n전체 초기화\n5시간과 주간 한도를 모두 초기화\n만료일: 12월 11일 오전 7:00 GMT+9\n무료로 초기화\n" +
+            "Fable 초기화\n만료일: 2027년 3월 9일 오후 4:59 GMT+9\n주간 사용량 전체가 초기화되지는 않음\n무료로 초기화\n사용 크레딧\nUS$0"
+        val snapshot = (ConsumerUsageParser.parse("claude", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(listOf("전체 초기화", "Fable 초기화"), snapshot.resetCredits.map { it.label })
+        assertEquals(
+            listOf("2026-12-10T22:00:00Z", "2027-03-09T07:59:00Z").map { Instant.parse(it).toEpochMilli() },
+            snapshot.resetCredits.map { it.expiresAt },
+        )
+    }
+
+    /** The English page, with the wording Claude's public strings give ("Reset limits"); the button text is a guess. */
+    @Test fun claudeEnglishLimitResetsAreRead() {
+        val page = "This week\n26% used\nReset limits\n2 available\nFull reset\nExpires: Dec 11, 7:00 AM GMT+9\nReset for free\n" +
+            "Fable reset\nExpires: Mar 9, 2027, 4:59 PM GMT+9\nRefills your 5-hour limit and Fable allowance.\nReset for free\nUsage credits\n$0"
+        val snapshot = (ConsumerUsageParser.parse("claude", "a", page, now, localZone) as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(listOf("Full reset", "Fable reset"), snapshot.resetCredits.map { it.label })
+        assertEquals(
+            listOf("2026-12-10T22:00:00Z", "2027-03-09T07:59:00Z").map { Instant.parse(it).toEpochMilli() },
+            snapshot.resetCredits.map { it.expiresAt },
+        )
+    }
+
+    /** An expiry printed before any name takes the name of the reset above it, not none. */
+    @Test fun anUnnamedExpiryTakesThePreviousResetsName() {
+        val page = "주간 사용 한도\n42% 남음\n사용 한도 초기화\n전체 재설정\n10월 23일 오전 4:29 만료\n초기화 사용\n10월 30일 오전 1:39 만료\n초기화 사용"
+        val credits = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot.resetCredits
+        assertEquals(listOf("전체 재설정", "전체 재설정"), credits.map { it.label })
+        assertTrue(credits.all { it.expiresAt != null })
     }
 
     @Test fun codexSettingsSayingNoResetsMeansZeroNotUnknown() {

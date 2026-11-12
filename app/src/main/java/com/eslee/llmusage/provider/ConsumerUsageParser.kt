@@ -15,7 +15,7 @@ import java.util.Locale
 
 /** Conservative parsing of text the user can see; no private API or credential extraction. */
 object ConsumerUsageParser {
-    const val VERSION = "1.2.9"
+    const val VERSION = "1.2.10"
     /**
      * A quota label opens a limit of its own; any other label only ends the section before it.
      * A share is part of the limit above it, so that limit's reset time may still follow it.
@@ -386,6 +386,10 @@ object ConsumerUsageParser {
         var lastLabel: String? = null
         var pending: ResetCredit? = null
         var precision = 0
+        // Codex and Claude end every reset with its own button. On such a page a line before
+        // that button still belongs to the open reset: Claude explains its Fable reset in a
+        // sentence that says "초기화", and a short one without a period passes creditTitle.
+        val closedByButtons = section.any { creditAction.matches(it) }
         fun finishItem() {
             pending?.let { credits += it }
             pending = null
@@ -412,14 +416,21 @@ object ConsumerUsageParser {
                         } }
                     val best = candidates.maxByOrNull { it.second }
                     if (pending == null || (best?.second ?: 0) > precision) {
-                        pending = ResetCredit(label, best?.first)
+                        // Like a button without a heading, an expiry without one is the same
+                        // kind as the reset before it. A null name split one kind into two.
+                        pending = ResetCredit(label ?: lastLabel, best?.first)
                         precision = best?.second ?: 0
                     }
                 }
-                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) && creditTitle(line) -> {
-                    finishItem()
-                    label = line
-                    lastLabel = line
+                creditItem.containsMatchIn(line) && !creditNoise.containsMatchIn(line) && creditTitle(line) -> when {
+                    // A caption between a reset's name and its expiry (the ⓘ tooltip) is not another reset.
+                    label != null && pending == null -> Unit
+                    closedByButtons && pending != null -> Unit
+                    else -> {
+                        finishItem()
+                        label = line
+                        lastLabel = line
+                    }
                 }
             }
         }

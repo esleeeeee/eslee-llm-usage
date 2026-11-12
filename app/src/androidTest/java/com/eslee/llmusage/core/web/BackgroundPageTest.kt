@@ -112,6 +112,38 @@ class BackgroundPageTest {
         } finally { repository.deleteAccount(id); database.close() }
     }
 
+    /**
+     * Claude shows its "제한 초기화" section only while the account holds resets, and the
+     * list can arrive after the figures. Once the title is there, the read waits for it,
+     * as it does for Codex, instead of saving the resets as unknown.
+     */
+    @Test fun claudeResetsThatArriveAfterTheFiguresAreRead(): Unit = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, UsageDatabase::class.java).build()
+        val reader = WebUsageReader(context) { web, _ ->
+            web.loadDataWithBaseURL("https://claude.ai/settings/usage", """
+                <html><body>플랜 사용량<br>현재 세션<br>2시간 10분 후 재설정<br>45% 남음<br>
+                매주<br>재설정: (목) 오전 10:00<br>77% 남음<br>제한 초기화<div id="list"></div>
+                <script>
+                  setTimeout(function(){
+                    document.getElementById('list').innerHTML =
+                      '<div>2개 사용 가능</div><div>전체 초기화</div><div>만료일: 12월 11일 오전 7:00 GMT+9</div><button>무료로 초기화</button>' +
+                      '<div>Fable 초기화</div><div>만료일: 2027년 3월 9일 오후 4:59 GMT+9</div><button>무료로 초기화</button>';
+                  }, 4500);
+                </script>
+                <div>사용 크레딧</div><div>US${'$'}0</div></body></html>
+            """.trimIndent(), "text/html", "UTF-8", "https://claude.ai/settings/usage")
+        }
+        val repository = UsageRepository(context, database, ProviderRegistry(false), CredentialStore(context), SettingsStore(context), reader::fetch)
+        val id = repository.addAccount("claude", "Claude resets arrive late")
+        try {
+            repository.refresh(id)
+            val snapshot = requireNotNull(repository.latest(id)) { "no reading saved; account ended as ${repository.account(id)?.lastErrorCode}" }
+            assertEquals(45.0, snapshot.buckets.first { it.id == "session" }.remainingPercent!!, 0.0)
+            assertTrue("The late reset list was not awaited", snapshot.resetCreditsKnown)
+            assertEquals(listOf("전체 초기화", "Fable 초기화"), snapshot.resetCredits.map { it.label })
+        } finally { repository.deleteAccount(id); database.close() }
+    }
+
     /** Percentages are painted normally; the dates and banked resets are only in open shadow roots. */
     @Test fun paintedCodexFiguresKeepShadowRootResetDatesAndCredits(): Unit = runBlocking {
         val sessionReset = moment(1)

@@ -85,18 +85,32 @@ object WidgetStateMapper {
             // that as unknown. It used to read "0개" for accounts that hold credits.
             val known = snapshot?.resetCreditsKnown == true
             val soonest = credits.mapNotNull { it.expiresAt }.minOrNull()
-            val kinds = UsageLabels.resetKindsCompact(context, credits, now)
-            val caption = status ?: when {
-                !known -> context.getString(R.string.reset_credits_unknown)
-                credits.isEmpty() -> context.getString(R.string.reset_credits_none)
-                // Two kinds (Claude: full and Fable) each say when they lapse.
-                kinds != null -> kinds
-                soonest == null -> context.getString(R.string.reset_credit_expiry_unknown)
-                else -> context.getString(R.string.expires_in, UsageLabels.countdownCompact(context, soonest, now))
+            val caption = status ?: when (resetCaption(known, credits, context.getString(R.string.reset_credit_default_label))) {
+                ResetCaption.UNKNOWN -> context.getString(R.string.reset_credits_unknown)
+                ResetCaption.NONE -> context.getString(R.string.reset_credits_none)
+                ResetCaption.KINDS -> UsageLabels.resetKindsCompact(context, credits, now)
+                    ?: context.getString(R.string.reset_credit_expiry_unknown)
+                ResetCaption.NO_EXPIRY -> context.getString(R.string.reset_credit_expiry_unknown)
+                ResetCaption.SOONEST -> context.getString(R.string.expires_in, UsageLabels.countdownCompact(context, soonest, now))
             }
             ResetSlot(account.id, account.providerId, account.alias, credits.size, soonest, caption, status != null, known)
         }
     }
+
+    /**
+     * Which caption a reset-widget row gets, before a sync warning, which outranks all of
+     * these. A reading that never saw the section is unknown, not zero; two kinds (Claude:
+     * full and Fable) each say when they lapse; otherwise the first expiry does.
+     */
+    internal fun resetCaption(known: Boolean, credits: List<ResetCredit>, unnamed: String): ResetCaption = when {
+        !known -> ResetCaption.UNKNOWN
+        credits.isEmpty() -> ResetCaption.NONE
+        UsageLabels.resetKinds(credits, unnamed).isNotEmpty() -> ResetCaption.KINDS
+        credits.none { it.expiresAt != null } -> ResetCaption.NO_EXPIRY
+        else -> ResetCaption.SOONEST
+    }
+
+    internal enum class ResetCaption { UNKNOWN, NONE, KINDS, NO_EXPIRY, SOONEST }
 }
 
 data class ResetSlot(

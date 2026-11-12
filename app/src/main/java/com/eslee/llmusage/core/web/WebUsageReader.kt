@@ -133,10 +133,14 @@ class WebUsageReader(
                     continue
                 }
                 val snapshot = (result as ProviderResult.Success).snapshot
+                // Codex always has a reset section; Claude and Grok show one only while
+                // they hold resets. Once its title is on the page, its list is awaited too.
+                val expectsResets = !snapshot.resetCreditsKnown && (listsResets ||
+                    ConsumerUsageParser.resetSection(page.text) != null ||
+                    (rich && ConsumerUsageParser.resetSection(page.rich) != null))
                 // A visible percentage does not imply that reset dates or banked
                 // credits are in innerText. Capture their structural text too.
-                if (!rich && (snapshot.buckets.any { it.resetAt == null } ||
-                    (listsResets && !snapshot.resetCreditsKnown))) rich = true
+                if (!rich && (snapshot.buckets.any { it.resetAt == null } || expectsResets)) rich = true
                 val next = signatureOf(snapshot)
                 if (next != signature) { signature = next; stableSince = now }
                 best = ProviderResult.Success(snapshot.copy(syncMode = SyncMode.BACKGROUND))
@@ -149,7 +153,7 @@ class WebUsageReader(
                 // Banked resets sit at the bottom of the Codex page and can arrive after the
                 // limits, or render only once scrolled to. Reported: an account holding three
                 // showed none, because the read ended before the list was there.
-                val awaitingResets = listsResets && !snapshot.resetCreditsKnown && now - firstFigures < RESETS_WAIT
+                val awaitingResets = expectsResets && now - firstFigures < RESETS_WAIT
                 if (scrolledAt == 0L || (awaitingResets && now - scrolledAt >= RESCROLL)) {
                     // Sections further down can render only once reached.
                     scrolledAt = now
@@ -227,11 +231,13 @@ class WebUsageReader(
             if (walked) WebTrace.record("bg-source", "${provider.id} ${usageContext(page.rich, provider.id)}")
         }
         if (outcome is ProviderResult.Success) {
-            // Codex always has the section, so its absence is worth a line; Claude and Grok
-            // show one only while they hold resets, so they log it only when it is there.
+            // Codex always has the section, so its absence is worth a line. Claude and Grok show
+            // one only while they hold resets; a good read already says "resets=N" in bg-read,
+            // so the section is logged only when it was there and still could not be read.
+            // Every pass logging it pushed failure evidence out of the 300-line trace.
             val section = (ConsumerUsageParser.resetSection(page.text) ?: ConsumerUsageParser.resetSection(page.rich))
                 ?.take(RESET_LINES)?.joinToString(" | ")
-            if (section != null || provider.id in BANKED_RESETS) {
+            if (provider.id in BANKED_RESETS || (section != null && !outcome.snapshot.resetCreditsKnown)) {
                 WebTrace.record("bg-resets", "${provider.id} \"${account.alias}\" ${section ?: "no section"}")
             }
         }

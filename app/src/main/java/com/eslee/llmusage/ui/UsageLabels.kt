@@ -91,9 +91,34 @@ object UsageLabels {
     fun dayAndTime(at: Long, locale: java.util.Locale = java.util.Locale.getDefault()): String =
         java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMdEEEjmm"), locale).format(Date(at))
 
-    /** "전체 초기화" → "전체", "Fable 초기화" → "Fable": what a banked reset restores, short enough for a widget. */
-    fun creditKind(label: String?): String? =
-        label?.replace(Regex("\\s*(?:초기화|재설정|reset)\\s*$", RegexOption.IGNORE_CASE), "")?.trim()?.ifEmpty { null } ?: label
+    private val creditDetail = Regex("\\s*[(（][^)）]*[)）]\\s*")
+    private val creditWord = Regex("\\s*(?:초기화|재설정|reset)\\s*$", RegexOption.IGNORE_CASE)
+
+    /**
+     * What a banked reset restores, short enough for a widget line: "전체 초기화" → "전체",
+     * "Fable 초기화" → "Fable", "전체 재설정(주간 + 5시간)" → "전체". A name that is only the
+     * reset word keeps it.
+     */
+    fun creditKind(label: String?): String? {
+        if (label == null) return null
+        val plain = creditDetail.replace(label, " ").trim()
+        return creditWord.replace(plain, "").trim().ifEmpty { plain.ifEmpty { label } }
+    }
+
+    /** One kind of banked reset an account holds: how many, and when the first of them lapses. */
+    data class ResetKind(val name: String, val count: Int, val soonest: Long?)
+
+    /**
+     * The kinds of banked reset in [credits], soonest first, or an empty list when there is
+     * only one kind. A reset without a name is shown as [unnamed], so it joins a named kind
+     * that reads the same instead of appearing twice.
+     */
+    fun resetKinds(credits: List<ResetCredit>, unnamed: String): List<ResetKind> {
+        val kinds = credits.groupBy { creditKind(it.label) ?: creditKind(unnamed) ?: unnamed }
+        if (kinds.size < 2) return emptyList()
+        return kinds.map { (name, list) -> ResetKind(name, list.size, list.mapNotNull { it.expiresAt }.minOrNull()) }
+            .sortedWith(compareBy(nullsLast()) { it.soonest })
+    }
 
     /**
      * "전체 29일 · Fable 117일": each kind of banked reset and when its first lapses, or null
@@ -101,13 +126,13 @@ object UsageLabels {
      * and the count alone hid which of the two was about to be lost.
      */
     fun resetKindsCompact(context: Context, credits: List<ResetCredit>, now: Long = System.currentTimeMillis()): String? {
-        val kinds = credits.groupBy { creditKind(it.label) }
-        if (kinds.size < 2) return null
-        return kinds.entries.joinToString(" · ") { (kind, list) ->
+        val kinds = resetKinds(credits, context.getString(R.string.reset_credit_default_label))
+        if (kinds.isEmpty()) return null
+        return kinds.joinToString(" · ") { kind ->
             listOfNotNull(
-                kind ?: context.getString(R.string.reset_credit_default_label),
-                list.size.takeIf { it > 1 }?.let { context.getString(R.string.reset_credits_count, it) },
-                countdownCompact(context, list.mapNotNull { it.expiresAt }.minOrNull(), now),
+                kind.name,
+                kind.count.takeIf { it > 1 }?.let { context.getString(R.string.reset_kind_count, it) },
+                countdownCompact(context, kind.soonest, now),
             ).joinToString(" ")
         }
     }
