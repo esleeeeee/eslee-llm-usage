@@ -1514,3 +1514,5 @@ v0.2.19 코드 리뷰(high)에서 8건이 나왔고 사용자가 모두 고쳐 �
 ### 미검증
 
 - 실기기에서 Claude 리셋권이 읽히는지(v0.2.19와 같음). 영어 "Reset for free"는 추정 문구다.
+
+CI(304b271, [run 43167399728](https://github.com/esleeeeee/eslee-llm-usage/actions/runs/43167399728)): 계측 테스트 **45개 모두 통과**(새 `claudeResetsThatArriveAfterTheFiguresAreRead` 포함), v0.2.20 프리릴리스 게시(2026-11-12 15:31 KST, APK 5,783,166바이트, SHA-256 `08d0836cf8b8b10a8a7bd157912c8ec2f799610add3f5615faec826bc7690c19`).
