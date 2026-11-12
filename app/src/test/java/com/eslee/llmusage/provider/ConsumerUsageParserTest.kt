@@ -715,6 +715,50 @@ class ConsumerUsageParserTest {
         assertEquals(java.time.ZonedDateTime.of(2026, 11, 7, 7, 33, 0, 0, localZone).toInstant().toEpochMilli(), snapshot.resetCredits.single().expiresAt)
     }
 
+    /**
+     * Claude's settings page (2026-11, typed from the user's screenshot, not a capture):
+     * "제한 초기화 / 2개 사용 가능", a full reset and a Fable one, each with its expiry and a
+     * "무료로 초기화" button. The Fable one is explained in a sentence that says "초기화" too.
+     */
+    @Test fun claudeLimitResetsAreTwoKindsWithTheirOwnExpiries() {
+        val snapshot = (parsed("claude", "usage_resets_korean") as ProviderResult.Success).snapshot
+        assertTrue(snapshot.resetCreditsKnown)
+        assertEquals(listOf("전체 초기화", "Fable 초기화"), snapshot.resetCredits.map { it.label })
+        assertEquals(
+            listOf("2026-12-10T22:00:00Z", "2027-03-09T07:59:00Z").map { Instant.parse(it).toEpochMilli() },
+            snapshot.resetCredits.map { it.expiresAt },
+        )
+        // The limits above the section are read as before, and a credit's expiry is not the week's reset.
+        val weekly = snapshot.buckets.first { it.id == "weekly" }
+        assertEquals(26.0, weekly.usedPercent!!, 0.0)
+        assertEquals(Instant.parse("2026-09-10T01:00:00Z").toEpochMilli(), weekly.resetAt)
+        assertEquals(2.0, snapshot.buckets.first { it.id == "session" }.usedPercent!!, 0.0)
+        assertEquals(listOf("session", "weekly"), snapshot.buckets.map { it.id })
+        // The usage-credit section after it is not a reset.
+        assertEquals(listOf("제한 초기화", "2개 사용 가능", "전체 초기화"),
+            ConsumerUsageParser.resetSection(fixture("claude", "usage_resets_korean"))!!.take(3))
+        assertFalse(ConsumerUsageParser.resetSection(fixture("claude", "usage_resets_korean"))!!.any { it.contains("크레딧") })
+    }
+
+    /** Without the button text (a capture that cut it), the stated count still holds and the sentence is no third reset. */
+    @Test fun claudeResetExplanationIsNotAReset() {
+        val page = "이번 주\n26% 사용됨\n제한 초기화\n2개 사용 가능\n전체 초기화\n만료일: 12월 11일 오전 7:00 GMT+9\n" +
+            "Fable 초기화\n만료일: 2027년 3월 9일 오후 4:59 GMT+9\n" +
+            "5시간 한도와 Fable 허용량을 다시 채우고, 주간 한도에서 차감된 Fable 사용분을 되돌려 드립니다. 주간 사용량 전체가 초기화되지는 않습니다.\n사용 크레딧\nUS$0"
+        val credits = (ConsumerUsageParser.parse("claude", "a", page, now, localZone) as ProviderResult.Success).snapshot.resetCredits
+        assertEquals(listOf("전체 초기화", "Fable 초기화"), credits.map { it.label })
+        assertTrue(credits.all { it.expiresAt != null })
+    }
+
+    @Test fun resetKindIsTheHeadingWithoutTheResetWord() {
+        assertEquals("전체", com.eslee.llmusage.ui.UsageLabels.creditKind("전체 초기화"))
+        assertEquals("Fable", com.eslee.llmusage.ui.UsageLabels.creditKind("Fable 초기화"))
+        assertEquals("Full", com.eslee.llmusage.ui.UsageLabels.creditKind("Full reset"))
+        assertEquals("전체 재설정(주간 + 5시간)", com.eslee.llmusage.ui.UsageLabels.creditKind("전체 재설정(주간 + 5시간)"))
+        assertEquals("초기화", com.eslee.llmusage.ui.UsageLabels.creditKind("초기화"))
+        assertNull(com.eslee.llmusage.ui.UsageLabels.creditKind(null))
+    }
+
     @Test fun codexSettingsSayingNoResetsMeansZeroNotUnknown() {
         val page = "5시간 사용 한도\n40% 남음\n오후 4:59 초기화\n사용 한도 초기화\n사용 가능한 초기화 없음\n남은 크레딧\n0"
         val snapshot = (ConsumerUsageParser.parse("chatgpt", "a", page, now, localZone) as ProviderResult.Success).snapshot

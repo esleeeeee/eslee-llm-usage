@@ -91,9 +91,31 @@ object UsageLabels {
     fun dayAndTime(at: Long, locale: java.util.Locale = java.util.Locale.getDefault()): String =
         java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMdEEEjmm"), locale).format(Date(at))
 
+    /** "전체 초기화" → "전체", "Fable 초기화" → "Fable": what a banked reset restores, short enough for a widget. */
+    fun creditKind(label: String?): String? =
+        label?.replace(Regex("\\s*(?:초기화|재설정|reset)\\s*$", RegexOption.IGNORE_CASE), "")?.trim()?.ifEmpty { null } ?: label
+
+    /**
+     * "전체 29일 · Fable 117일": each kind of banked reset and when its first lapses, or null
+     * when the account holds only one kind. Claude grants a full reset and a Fable-only one,
+     * and the count alone hid which of the two was about to be lost.
+     */
+    fun resetKindsCompact(context: Context, credits: List<ResetCredit>, now: Long = System.currentTimeMillis()): String? {
+        val kinds = credits.groupBy { creditKind(it.label) }
+        if (kinds.size < 2) return null
+        return kinds.entries.joinToString(" · ") { (kind, list) ->
+            listOfNotNull(
+                kind ?: context.getString(R.string.reset_credit_default_label),
+                list.size.takeIf { it > 1 }?.let { context.getString(R.string.reset_credits_count, it) },
+                countdownCompact(context, list.mapNotNull { it.expiresAt }.minOrNull(), now),
+            ).joinToString(" ")
+        }
+    }
+
     /** "리셋권 2개 · 3일 후 만료": how many banked resets an account holds and when the first one lapses. */
     fun resetCreditsSummary(context: Context, credits: List<ResetCredit>, now: Long = System.currentTimeMillis()): String? {
         if (credits.isEmpty()) return null
+        resetKindsCompact(context, credits, now)?.let { return context.getString(R.string.reset_credits_summary_kinds, credits.size, it) }
         val soonest = credits.mapNotNull { it.expiresAt }.minOrNull()
             ?: return context.getString(R.string.reset_credits_summary_no_expiry, credits.size)
         return context.getString(R.string.reset_credits_summary, credits.size, countdownCompact(context, soonest, now))

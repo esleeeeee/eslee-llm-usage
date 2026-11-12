@@ -85,9 +85,12 @@ object WidgetStateMapper {
             // that as unknown. It used to read "0개" for accounts that hold credits.
             val known = snapshot?.resetCreditsKnown == true
             val soonest = credits.mapNotNull { it.expiresAt }.minOrNull()
+            val kinds = UsageLabels.resetKindsCompact(context, credits, now)
             val caption = status ?: when {
                 !known -> context.getString(R.string.reset_credits_unknown)
                 credits.isEmpty() -> context.getString(R.string.reset_credits_none)
+                // Two kinds (Claude: full and Fable) each say when they lapse.
+                kinds != null -> kinds
                 soonest == null -> context.getString(R.string.reset_credit_expiry_unknown)
                 else -> context.getString(R.string.expires_in, UsageLabels.countdownCompact(context, soonest, now))
             }

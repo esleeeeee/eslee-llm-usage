@@ -227,9 +227,11 @@ class WebUsageReader(
             if (walked) WebTrace.record("bg-source", "${provider.id} ${usageContext(page.rich, provider.id)}")
         }
         if (outcome is ProviderResult.Success) {
-            if (provider.id in BANKED_RESETS) {
-                val section = (ConsumerUsageParser.resetSection(page.text) ?: ConsumerUsageParser.resetSection(page.rich))
-                    ?.take(RESET_LINES)?.joinToString(" | ")
+            // Codex always has the section, so its absence is worth a line; Claude and Grok
+            // show one only while they hold resets, so they log it only when it is there.
+            val section = (ConsumerUsageParser.resetSection(page.text) ?: ConsumerUsageParser.resetSection(page.rich))
+                ?.take(RESET_LINES)?.joinToString(" | ")
+            if (section != null || provider.id in BANKED_RESETS) {
                 WebTrace.record("bg-resets", "${provider.id} \"${account.alias}\" ${section ?: "no section"}")
             }
         }
